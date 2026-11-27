@@ -32,23 +32,31 @@ fn hidden(name: &'static str, value: impl Into<String>) -> El {
 }
 
 /// Notes about the pull request, named by kind for the style sheet.
-fn tags(pull: &Pull) -> El {
+/// GitHub's page for the merge queue of a branch.
+fn queue_page(config: &Config, base: &str) -> String {
+    format!("{}/{}/queue/{base}", config.web, config.repo)
+}
+
+fn tags(config: &Config, pull: &Pull) -> El {
     let ci = pull.ci.as_deref().unwrap_or("no checks");
     let mut tags = el("ul").attr("class", "tags");
     tags = tags.kid(text("li", format!("CI {ci}")).attr("class", "ci"));
-    let queued = format!("merge queue #{}", pull.queued.unwrap_or_default());
     let setter = format!("label set by {}, CI ignores it", pull.setter);
     let notes = [
         (pull.stuck, "stuck", "conflicts with main".to_string()),
         (pull.waits, "waits", "waits on a human".to_string()),
         (pull.merging, "merging", "auto-merge on".to_string()),
-        (pull.queued.is_some(), "queued", queued),
         (!pull.trusted, "untrusted", setter),
     ];
     for (on, class, body) in notes {
         if on {
             tags = tags.kid(text("li", body).attr("class", class));
         }
+    }
+    if let Some(position) = pull.queued {
+        let link = text("a", format!("merge queue #{position}"));
+        let link = link.attr("href", queue_page(config, &pull.base));
+        tags = tags.kid(el("li").attr("class", "queued").kid(link));
     }
     tags
 }
@@ -151,7 +159,7 @@ fn card(view: &View, pull: &Pull, layout: &Layout, lane: &str) -> El {
     }
     card = card
         .kid(el("header").kid(link).kid(author))
-        .kid(tags(pull))
+        .kid(tags(view.config, pull))
         .kid(overlaps(pull, &layout.rank));
     // GitHub merges a queued PR on its own.
     match pull.queued {
@@ -234,13 +242,17 @@ pub(crate) fn board(view: &View) -> String {
     lanes.push(queue(view.pulls));
     let layout = layout::lay(&lanes);
     let mut main = el("main").attr("class", "board");
+    let front = lanes.last().and_then(|q| q.first());
+    let front = front.map(|pull| queue_page(view.config, &pull.base));
     for (lane, &title) in titles.iter().enumerate() {
         let style = format!("grid-column:{};grid-row:1", lane + 1);
-        main = main.kid(
-            text("h2", title)
-                .attr("data-lane", title)
-                .attr("style", style),
-        );
+        let head = el("h2").attr("data-lane", title).attr("style", style);
+        // The queue title opens GitHub's queue page while the queue has PRs.
+        let head = match front.as_ref().filter(|_| lane + 1 == titles.len()) {
+            Some(href) => head.kid(text("a", title).attr("href", href)),
+            None => head.text(title),
+        };
+        main = main.kid(head);
     }
     for &(pull, spot) in &layout.cards {
         let card = card(view, pull, &layout, titles[spot.lane]);

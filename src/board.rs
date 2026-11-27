@@ -35,6 +35,8 @@ impl Tier {
 pub struct Pull {
     pub number: u64,
     pub title: String,
+    /// The branch it merges into.
+    pub base: String,
     pub author: String,
     pub draft: bool,
     /// Has the `needs-human-review` label.
