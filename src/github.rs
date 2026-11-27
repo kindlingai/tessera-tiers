@@ -18,7 +18,7 @@ const QUERY: &str = "query($owner:String!,$name:String!,$after:String){\
 repository(owner:$owner,name:$name){\
 pullRequests(states:OPEN,first:50,after:$after){\
 pageInfo{hasNextPage endCursor}\
-nodes{number title isDraft mergeable author{login __typename}\
+nodes{number title isDraft mergeable autoMergeRequest{enabledAt} author{login __typename}\
 labels(first:100){nodes{name}}\
 commits(last:1){nodes{commit{statusCheckRollup{state}}}}\
 timelineItems(itemTypes:[LABELED_EVENT],last:100){nodes{\
@@ -86,6 +86,7 @@ struct Node {
     title: String,
     is_draft: bool,
     mergeable: String,
+    auto_merge_request: Option<Value>,
     author: Option<Actor>,
     labels: Nodes<Named>,
     commits: Nodes<Tip>,
@@ -127,6 +128,7 @@ fn pull(node: Node, slug: &str) -> Pull {
         setter: String::new(),
         trusted: tier == Tier::Untagged,
         stuck: node.mergeable == "CONFLICTING",
+        merging: node.auto_merge_request.is_some(),
         overlaps: Vec::new(),
     };
     for tip in node.commits.nodes {
@@ -336,16 +338,21 @@ impl<H: Host> Client<'_, H> {
         Ok(())
     }
 
-    /// Adds the new label first. A failure keeps a tier.
-    pub async fn retier(&self, install: &Install, number: u64, tier: Tier) -> Result<(), Fault> {
+    /// An open pull request and the path of its labels.
+    async fn open(&self, install: &Install, number: u64) -> Result<(Value, String), Fault> {
         let repo = &self.config.repo;
-        let token = &install.token;
         let path = format!("/repos/{repo}/pulls/{number}");
-        let found = self.api("GET", &path, token, None).await?;
+        let found = self.api("GET", &path, &install.token, None).await?;
         if found["state"] != "open" {
             return Err(Fault::new(409, format!("#{number} is not open")));
         }
-        let labels = format!("/repos/{repo}/issues/{number}/labels");
+        Ok((found, format!("/repos/{repo}/issues/{number}/labels")))
+    }
+
+    /// Adds the new label first. A failure keeps a tier.
+    pub async fn retier(&self, install: &Install, number: u64, tier: Tier) -> Result<(), Fault> {
+        let token = &install.token;
+        let (found, labels) = self.open(install, number).await?;
         let mut old = Vec::new();
         for label in found["labels"].as_array().into_iter().flatten() {
             let name = label["name"].as_str().unwrap_or_default();
@@ -367,6 +374,28 @@ impl<H: Host> Client<'_, H> {
             }
         }
         Ok(())
+    }
+
+    /// Squash merges the pull request once its checks pass.
+    pub async fn automerge(&self, install: &Install, number: u64) -> Result<(), Fault> {
+        let (found, _) = self.open(install, number).await?;
+        let query = "mutation($id:ID!){enablePullRequestAutoMerge(\
+input:{pullRequestId:$id,mergeMethod:SQUASH}){clientMutationId}}";
+        let variables = json!({ "id": found["node_id"] });
+        let body = json!({ "query": query, "variables": variables });
+        let reply = self
+            .api("POST", "/graphql", &install.token, Some(body))
+            .await?;
+        match reply["errors"][0]["message"].as_str() {
+            Some(why) => Err(Fault::new(502, format!("GitHub refused auto-merge: {why}"))),
+            None => Ok(()),
+        }
+    }
+
+    /// Removes `needs-human-review`, which CI reads as the review done.
+    pub async fn release(&self, install: &Install, number: u64) -> Result<(), Fault> {
+        let (_, labels) = self.open(install, number).await?;
+        self.unlabel(install, &labels, WAITS).await
     }
 
     /// The login and user id behind an OAuth `code`.

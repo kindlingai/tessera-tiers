@@ -47,6 +47,8 @@ pub struct Pull {
     pub trusted: bool,
     /// Does not merge with its base branch.
     pub stuck: bool,
+    /// Auto-merge is on.
+    pub merging: bool,
     pub overlaps: Vec<Overlap>,
 }
 
