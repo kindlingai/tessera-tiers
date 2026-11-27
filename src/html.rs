@@ -3,8 +3,6 @@
 pub enum Part {
     El(El),
     Text(String),
-    /// Trusted text, such as a static script or style.
-    Raw(String),
 }
 
 pub struct El {
@@ -73,7 +71,6 @@ impl El {
             match kid {
                 Part::El(e) => e.render(out),
                 Part::Text(t) => escape(t, out),
-                Part::Raw(r) => out.push_str(r),
             }
         }
         out.push_str("</");

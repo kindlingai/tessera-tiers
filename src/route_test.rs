@@ -283,24 +283,25 @@ fn refuses_other_callers() {
 fn board_escapes_text() {
     let page = ask(&Fake::default(), "GET", "/", "Matt", "").body;
     assert!(page.contains("&lt;script&gt;alert(1)") && !page.contains("<script>"));
-    assert!(page.contains("conflicts with #3: a/&lt;b&gt;.rs"));
-    assert!(page.contains("shares files with #4: c.rs, d.rs"));
+    let files = r#"<b>#3</b> <span class="files">a/&lt;b&gt;.rs</span>"#;
+    assert!(page.contains(files) && page.contains(r#"<b>#4</b> <span class="files">c.rs, d.rs"#));
     assert!(page.contains("label set by mmastrac") && !page.contains("forged.rs"));
     assert!(page.contains("no overlaps") && page.contains("overlaps not checked"));
     let actions = [r#"formaction="/review""#, "auto-merge on"];
     assert!(actions.iter().all(|a| page.contains(a)));
     // Draft #2 is in the left lane and conflicts with #3, which is ahead.
     let spots = [
-        r#"<article id="pr-4" data-shares="" data-conflicts="" data-ci="none" class="" style="grid-column:5/6;grid-row:2/3">"#,
-        r#"<article id="pr-3" data-shares="" data-conflicts="" data-ci="none" class="blocks" style="grid-column:4/5;grid-row:2/3">"#,
-        r#"<article id="pr-2" data-shares="4" data-conflicts="3" data-ci="failure" class="blocked" style="grid-column:1/2;grid-row:3/4">"#,
+        r#"data-queued="2" style="grid-column:5/6;grid-row:2/3">"#,
+        r#"data-merging="" data-blocks="" style="grid-column:4/5;grid-row:2/3">"#,
+        r#"<article id="pr-2" data-lane="draft" data-ci="failure" data-shares="4" data-conflicts="3""#,
+        r#"data-draft="" data-waits="" data-blocked="" style="grid-column:1/2;grid-row:3/4">"#,
     ];
     assert!(spots.iter().all(|s| page.contains(s)), "{page}");
     let queued = page.split(r#"id="pr-4""#).nth(1).unwrap();
     assert!(!queued.split("</article>").next().unwrap().contains("<form"));
     assert!(!page.contains("release 1.0.0"));
     assert!(page.contains(r#"src="/app.js""#));
-    assert!(page.find("#3 first").unwrap() < page.find("#2 ").unwrap());
+    assert!(page.find(r#"id="pr-3""#).unwrap() < page.find(r#"id="pr-2""#).unwrap());
 }
 
 #[test]
@@ -326,7 +327,9 @@ fn tabs_show_usage() {
         cache.contains("100%</span> 10.00 GiB of 10 GiB, GitHub default") && cache.contains(main)
     );
     let limits = ask(&fake, "GET", "/limits", "Matt", "").body;
-    let file = r#"dflash.rs</td><td>1000 / 1000</td><td><span class="bad">"#;
+    let link = r#"<a href="https://web.test/o/r/blob/bbbbbbbbbbbb/engine/models/src/dflash.rs">"#;
+    assert!(limits.contains(link), "{limits}");
+    let file = r#"dflash.rs</a></td><td>1000 / 1000</td><td><span class="meter" style="--share:100%" data-near="">"#;
     assert!(limits.contains(">bbbbbbbb</a>. 2 of 3 measures") && limits.contains(file));
     let last = fake.calls.borrow().last().cloned().unwrap();
     assert!(last.starts_with("GET /blob  "));
