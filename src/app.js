@@ -1,6 +1,6 @@
 // Sends a card's button without a page load. Each server reply is a new
-// snapshot of the board, and the page follows the snapshot. A card that
-// waits on its own request, or shows an error, keeps its element.
+// snapshot of the board, and the page takes its layout from the snapshot.
+// A card that waits on its own request, or shows an error, keeps its element.
 "use strict";
 
 let pending = 0;
@@ -10,44 +10,25 @@ function kept(card) {
     return card.classList.contains("locked") || card.querySelector(".error");
 }
 
-// Puts the cards of a snapshot in its order. With `only`, moves that card
-// alone and leaves the others where they are.
-function follow(page, only) {
-    const seen = new Set();
-    for (const column of page.querySelectorAll("section")) {
-        const home = document.getElementById(column.id);
-        if (!home) {
-            continue;
-        }
-        let anchor = home.querySelector("h2");
-        for (const fresh of [...column.querySelectorAll("article")]) {
-            seen.add(fresh.id);
-            const old = document.getElementById(fresh.id);
-            if (only && fresh.id !== only) {
-                if (old && old.parentNode === home) {
-                    anchor = old;
-                }
-                continue;
-            }
-            let node = old;
-            if (!old || !kept(old)) {
-                node = document.adoptNode(fresh);
-                old?.remove();
-            }
-            anchor.after(node);
-            anchor = node;
+function follow(text) {
+    const main = document.querySelector("main");
+    const fresh = new DOMParser().parseFromString(text, "text/html").querySelector("main");
+    if (!main || !fresh) {
+        return;
+    }
+    for (const card of [...fresh.querySelectorAll("article")]) {
+        const old = document.getElementById(card.id);
+        if (old && kept(old)) {
+            old.setAttribute("style", card.getAttribute("style") || "");
+            card.replaceWith(old);
         }
     }
-    for (const card of document.querySelectorAll("main article")) {
-        const mine = !only || card.id === only;
-        if (mine && !seen.has(card.id) && !kept(card)) {
-            card.remove();
+    for (const old of [...main.querySelectorAll("article")]) {
+        if (kept(old)) {
+            fresh.append(old);
         }
     }
-}
-
-function snapshot(text) {
-    return new DOMParser().parseFromString(text, "text/html");
+    main.replaceWith(document.adoptNode(fresh));
 }
 
 // A reply can predate another request's change, so once no request waits,
@@ -60,7 +41,7 @@ async function settle() {
     stale = false;
     const reply = await fetch("/");
     if (reply.ok && pending === 0) {
-        follow(snapshot(await reply.text()), null);
+        follow(await reply.text());
     }
 }
 
@@ -85,7 +66,7 @@ async function send(event) {
         }
         card.classList.remove("locked");
         stale = true;
-        follow(snapshot(text), card.id);
+        follow(text);
     } catch (error) {
         const note = document.createElement("p");
         note.className = "error";

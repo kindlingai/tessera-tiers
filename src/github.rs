@@ -14,7 +14,7 @@ const WAITS: &str = "needs-human-review";
 const JWT_LIFE: u64 = 540;
 
 /// Label events arrive oldest first.
-const QUERY: &str = "query($owner:String!,$name:String!,$after:String){\
+pub(crate) const QUERY: &str = "query($owner:String!,$name:String!,$after:String){\
 repository(owner:$owner,name:$name){\
 pullRequests(states:OPEN,first:50,after:$after){\
 pageInfo{hasNextPage endCursor}\
@@ -112,6 +112,20 @@ struct Page {
 struct PageInfo {
     has_next_page: bool,
     end_cursor: Option<String>,
+}
+
+/// The pull requests in GraphQL reply pages, for a local preview.
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) fn preview(pages: Vec<Value>, slug: &str) -> Vec<Pull> {
+    let mut pulls = Vec::new();
+    for mut reply in pages {
+        let page = reply["data"]["repository"]["pullRequests"].take();
+        let page: Page = serde_json::from_value(page).expect("a pull request page");
+        for node in page.nodes {
+            pulls.push(pull(node, slug));
+        }
+    }
+    pulls
 }
 
 fn pull(node: Node, slug: &str) -> Pull {

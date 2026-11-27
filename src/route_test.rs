@@ -280,8 +280,15 @@ fn board_escapes_text() {
     assert!(page.contains("no overlaps") && page.contains("overlaps not checked"));
     let actions = [r#"formaction="/review""#, "auto-merge on"];
     assert!(actions.iter().all(|a| page.contains(a)));
-    assert!(page.contains(r#"<h2>merge queue</h2><article id="pr-4">"#));
-    assert!(page.contains(r#"<article id="pr-3">"#) && page.contains(r#"src="/app.js""#));
+    // Draft #2 is in the left lane and conflicts with #3, which is ahead.
+    let spots = [
+        r#"<article id="pr-4" style="grid-column:5/6;grid-row:2/3">"#,
+        r#"<article id="pr-3" style="grid-column:4/5;grid-row:2/3">"#,
+        r#"<article id="pr-2" style="grid-column:1/2;grid-row:3/4">"#,
+        r#"<div class="zone" style="grid-column:1/5;grid-row:2/4">"#,
+    ];
+    assert!(spots.iter().all(|s| page.contains(s)), "{page}");
+    assert!(page.contains(r#"src="/app.js""#));
     assert!(page.find("#3 first").unwrap() < page.find("#2 ").unwrap());
 }
 
