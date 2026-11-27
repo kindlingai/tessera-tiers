@@ -285,11 +285,9 @@ fn board_escapes_text() {
     assert!(actions.iter().all(|a| page.contains(a)));
     // Draft #2 is in the left lane and conflicts with #3, which is ahead.
     let spots = [
-        r#"<article id="pr-4" style="grid-column:5/6;grid-row:2/3">"#,
-        r#"<article id="pr-3" style="grid-column:4/5;grid-row:2/3">"#,
-        r#"<article id="pr-2" style="grid-column:1/2;grid-row:3/4">"#,
-        r#"<div class="zone blocks" style="grid-column:4/5;grid-row:2/3">"#,
-        r#"<div class="zone blocked" style="grid-column:1/2;grid-row:3/4">"#,
+        r#"<article id="pr-4" data-shares="" data-conflicts="" class="" style="grid-column:5/6;grid-row:2/3">"#,
+        r#"<article id="pr-3" data-shares="" data-conflicts="" class="blocks" style="grid-column:4/5;grid-row:2/3">"#,
+        r#"<article id="pr-2" data-shares="4" data-conflicts="3" class="blocked" style="grid-column:1/2;grid-row:3/4">"#,
     ];
     assert!(spots.iter().all(|s| page.contains(s)), "{page}");
     let queued = page.split(r#"id="pr-4""#).nth(1).unwrap();
