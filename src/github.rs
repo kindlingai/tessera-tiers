@@ -18,7 +18,7 @@ const QUERY: &str = "query($owner:String!,$name:String!,$after:String){\
 repository(owner:$owner,name:$name){\
 pullRequests(states:OPEN,first:50,after:$after){\
 pageInfo{hasNextPage endCursor}\
-nodes{number title isDraft mergeable autoMergeRequest{enabledAt} author{login __typename}\
+nodes{number title isDraft mergeable autoMergeRequest{enabledAt} mergeQueueEntry{position} author{login __typename}\
 labels(first:100){nodes{name}}\
 commits(last:1){nodes{commit{statusCheckRollup{state}}}}\
 timelineItems(itemTypes:[LABELED_EVENT],last:100){nodes{\
@@ -61,6 +61,11 @@ struct Commit {
 }
 
 #[derive(Deserialize)]
+struct Entry {
+    position: u64,
+}
+
+#[derive(Deserialize)]
 struct Rollup {
     state: String,
 }
@@ -87,6 +92,7 @@ struct Node {
     is_draft: bool,
     mergeable: String,
     auto_merge_request: Option<Value>,
+    merge_queue_entry: Option<Entry>,
     author: Option<Actor>,
     labels: Nodes<Named>,
     commits: Nodes<Tip>,
@@ -129,6 +135,7 @@ fn pull(node: Node, slug: &str) -> Pull {
         trusted: tier == Tier::Untagged,
         stuck: node.mergeable == "CONFLICTING",
         merging: node.auto_merge_request.is_some(),
+        queued: node.merge_queue_entry.map(|e| e.position),
         overlaps: Vec::new(),
     };
     for tip in node.commits.nodes {
