@@ -2,7 +2,7 @@
 
 use crate::Config;
 use crate::board::{Pull, Tier, column, drafts, queue};
-use crate::html::{El, Part, el, text};
+use crate::html::{El, el, text};
 use crate::layout::{self, Layout, Spot};
 use crate::overlap::Kind;
 use crate::session::Session;
@@ -13,32 +13,15 @@ pub(crate) const NEAR: u64 = 90;
 /// Each tab's path and name.
 const TABS: [(&str, &str); 3] = [("/", "Tiers"), ("/cache", "Cache"), ("/limits", "Limits")];
 
-const STYLE: &str = "body{font:14px system-ui;margin:1rem}\
-main.board{position:relative;display:grid;grid-template-columns:repeat(5,1fr);gap:0 1rem;align-items:start}\
-.blocks{box-shadow:0 0 0 4px #a605}.blocked{box-shadow:0 0 0 4px #c005}\
-.blocks.blocked{box-shadow:0 0 0 4px #c005,0 0 0 8px #a605}article{position:relative;z-index:1;background:#fff}\
-svg.links{position:absolute;left:0;top:0;pointer-events:none;overflow:visible}\
-.links line{stroke:#888;stroke-width:2;stroke-dasharray:4 3}.links line.conflicts{stroke:#c00;stroke-dasharray:none}\
-article{border:1px solid #888;border-radius:4px;padding:.5rem;margin:.5rem 0}\
-.tag{border:1px solid #888;border-radius:4px;padding:0 .3rem;margin-right:.3rem}\
-.bad{border-color:#c00;color:#c00}li.bad{border:0}.holds{color:#740}\
-form{display:inline}nav a{margin-right:1rem}\
-table{border-collapse:collapse;margin-top:.5rem}\
-td,th{text-align:left;padding:.25rem 1.5rem .25rem 0;white-space:nowrap;border-bottom:1px solid #eee}\
-td:nth-child(2){font-family:ui-monospace,monospace}\
-.meter{display:inline-block;width:8rem;height:.6rem;background:#eee;border-radius:3px;margin-right:.5rem}\
-.meter i{display:block;height:100%;background:#888;border-radius:3px}.bad .meter i{background:#c00}ul{margin:.3rem 0;padding-left:1.2rem}\
-.locked{opacity:.4;pointer-events:none}button.danger{border-color:#c00;color:#c00}.error{color:#c00}";
-
 pub struct View<'a> {
     pub config: &'a Config,
     pub session: &'a Session,
     pub pulls: &'a [Pull],
 }
 
-fn tag(body: impl Into<String>, bad: bool) -> El {
-    let class = if bad { "tag bad" } else { "tag" };
-    text("span", body).attr("class", class)
+/// A boolean data attribute, present when `on`.
+fn flag(el: El, name: &'static str, on: bool) -> El {
+    if on { el.attr(name, "") } else { el }
 }
 
 fn hidden(name: &'static str, value: impl Into<String>) -> El {
@@ -48,26 +31,24 @@ fn hidden(name: &'static str, value: impl Into<String>) -> El {
         .attr("value", value)
 }
 
+/// Notes about the pull request, named by kind for the style sheet.
 fn tags(pull: &Pull) -> El {
-    let mut tags = el("p");
     let ci = pull.ci.as_deref().unwrap_or("no checks");
-    let red = matches!(ci, "failure" | "error");
-    tags = tags.kid(tag(format!("CI {ci}"), red));
-    if pull.stuck {
-        tags = tags.kid(tag("conflicts with main", true));
-    }
-    if pull.waits {
-        tags = tags.kid(tag("waits on a human", false));
-    }
-    if pull.merging {
-        tags = tags.kid(tag("auto-merge on", false));
-    }
-    if let Some(position) = pull.queued {
-        tags = tags.kid(tag(format!("merge queue #{position}"), false));
-    }
-    if !pull.trusted {
-        let note = format!("label set by {}, CI ignores it", pull.setter);
-        tags = tags.kid(tag(note, true));
+    let mut tags = el("ul").attr("class", "tags");
+    tags = tags.kid(text("li", format!("CI {ci}")).attr("class", "ci"));
+    let queued = format!("merge queue #{}", pull.queued.unwrap_or_default());
+    let setter = format!("label set by {}, CI ignores it", pull.setter);
+    let notes = [
+        (pull.stuck, "stuck", "conflicts with main".to_string()),
+        (pull.waits, "waits", "waits on a human".to_string()),
+        (pull.merging, "merging", "auto-merge on".to_string()),
+        (pull.queued.is_some(), "queued", queued),
+        (!pull.trusted, "untrusted", setter),
+    ];
+    for (on, class, body) in notes {
+        if on {
+            tags = tags.kid(text("li", body).attr("class", class));
+        }
     }
     tags
 }
@@ -76,17 +57,18 @@ fn tags(pull: &Pull) -> El {
 /// the PR ahead, because the PR ahead merges first.
 fn overlaps(pull: &Pull, rank: &BTreeMap<u64, usize>) -> El {
     let mine = rank.get(&pull.number);
-    let mut list = el("ul");
+    let mut list = el("ul").attr("class", "overlaps");
     for overlap in &pull.overlaps {
         let behind = mine < rank.get(&overlap.other);
-        let (verb, class) = match overlap.kind {
-            Kind::Conflict if behind => ("blocks", "holds"),
-            Kind::Conflict => ("conflicts with", "bad"),
-            Kind::Shared => ("shares files with", ""),
+        let (verb, kind) = match overlap.kind {
+            Kind::Conflict if behind => ("blocks", "blocks"),
+            Kind::Conflict => ("conflicts with", "conflicts"),
+            Kind::Shared => ("shares files with", "shares"),
         };
-        let files = overlap.files.join(", ");
-        let line = format!("{verb} #{}: {files}", overlap.other);
-        list = list.kid(text("li", line).attr("class", class));
+        let files = text("span", overlap.files.join(", ")).attr("class", "files");
+        let line = el("li").attr("data-kind", kind).text(format!("{verb} "));
+        let line = line.kid(text("b", format!("#{}", overlap.other))).text(" ");
+        list = list.kid(line.kid(files));
     }
     if !pull.overlaps.is_empty() {
         return list;
@@ -97,12 +79,13 @@ fn overlaps(pull: &Pull, rank: &BTreeMap<u64, usize>) -> El {
     } else {
         "no overlaps"
     };
-    list.kid(text("li", none))
+    list.kid(text("li", none).attr("data-kind", "none"))
 }
 
 /// Buttons that move a pull request to another tier.
 fn controls(pull: &Pull, session: &Session) -> El {
     let mut form = el("form")
+        .attr("class", "controls")
         .attr("method", "post")
         .attr("action", "/tier")
         .kid(hidden("csrf", &session.csrf))
@@ -124,42 +107,50 @@ fn controls(pull: &Pull, session: &Session) -> El {
         form = form.kid(button.attr("formaction", "/review"));
     }
     if !pull.draft {
-        let button = text("button", "emergency landing").attr("class", "danger");
+        let button = text("button", "emergency landing");
         form = form.kid(button.attr("formaction", "/land"));
     }
     form
 }
 
-/// Rings for a PR that blocks another, or that another blocks.
-fn marks(number: u64, layout: &Layout) -> String {
-    let mut marks = Vec::new();
-    if layout.blocking.contains(&number) {
-        marks.push("blocks");
-    }
-    if layout.blocked.contains(&number) {
-        marks.push("blocked");
-    }
-    marks.join(" ")
-}
-
-fn card(view: &View, pull: &Pull, layout: &Layout) -> El {
+/// One flight strip. Its state goes into data attributes, and the style
+/// sheet draws it.
+fn card(view: &View, pull: &Pull, layout: &Layout, lane: &str) -> El {
     let Config { web, repo, .. } = view.config;
-    let link = text("a", format!("#{} {}", pull.number, pull.title))
-        .attr("href", format!("{web}/{repo}/pull/{}", pull.number));
-    let by = format!(" by {}", pull.author);
+    let link = el("a")
+        .attr("href", format!("{web}/{repo}/pull/{}", pull.number))
+        .kid(text("b", format!("#{}", pull.number)))
+        .text(format!(" {}", pull.title));
+    let author = text("span", pull.author.as_str()).attr("class", "author");
     let mut links = [Vec::new(), Vec::new()];
     for overlap in &pull.overlaps {
         let kind = usize::from(overlap.kind == Kind::Conflict);
         links[kind].push(overlap.other.to_string());
     }
     let [shares, conflicts] = links.map(|numbers| numbers.join(" "));
-    let card = el("article")
+    let mut card = el("article")
         .attr("id", format!("pr-{}", pull.number))
-        .attr("data-shares", shares)
-        .attr("data-conflicts", conflicts)
+        .attr("data-lane", lane)
         .attr("data-ci", pull.ci.as_deref().unwrap_or("none"))
-        .attr("class", marks(pull.number, layout))
-        .kid(el("p").kid(link).text(by))
+        .attr("data-shares", shares)
+        .attr("data-conflicts", conflicts);
+    let flags = [
+        ("data-draft", pull.draft),
+        ("data-waits", pull.waits),
+        ("data-merging", pull.merging),
+        ("data-stuck", pull.stuck),
+        ("data-untrusted", !pull.trusted),
+        ("data-blocks", layout.blocking.contains(&pull.number)),
+        ("data-blocked", layout.blocked.contains(&pull.number)),
+    ];
+    for (name, on) in flags {
+        card = flag(card, name, on);
+    }
+    if let Some(position) = pull.queued {
+        card = card.attr("data-queued", position.to_string());
+    }
+    card = card
+        .kid(el("header").kid(link).kid(author))
         .kid(tags(pull))
         .kid(overlaps(pull, &layout.rank));
     // GitHub merges a queued PR on its own.
@@ -185,12 +176,11 @@ fn account(session: &Session) -> El {
 
 /// A bar filled to `share` percent, then the number. Marked at `NEAR`.
 pub(crate) fn meter(share: u64) -> El {
-    let fill = el("i").attr("style", format!("width:{}%", share.min(100)));
-    let bar = el("span").attr("class", "meter").kid(fill);
-    let class = if share >= NEAR { "bad" } else { "" };
-    el("span")
-        .attr("class", class)
-        .kid(bar)
+    let bar = el("span")
+        .attr("class", "meter")
+        .attr("style", format!("--share:{}%", share.min(100)));
+    flag(bar, "data-near", share >= NEAR)
+        .kid(el("i"))
         .text(format!("{share}%"))
 }
 
@@ -205,7 +195,16 @@ fn shell(config: &Config, parts: [El; 2]) -> String {
     let head = el("head")
         .kid(el("meta").attr("charset", "utf-8"))
         .kid(text("title", title.clone()))
-        .kid(el("style").kid(Part::Raw(STYLE.into())))
+        .kid(
+            el("meta")
+                .attr("name", "viewport")
+                .attr("content", "width=device-width"),
+        )
+        .kid(
+            el("link")
+                .attr("rel", "stylesheet")
+                .attr("href", "/app.css"),
+        )
         .kid(el("script").attr("src", "/app.js").attr("defer", ""));
     let body = el("body").kid(text("h1", title)).kids(parts);
     el("html").attr("lang", "en").kid(head).kid(body).page()
@@ -235,12 +234,16 @@ pub(crate) fn board(view: &View) -> String {
     lanes.push(queue(view.pulls));
     let layout = layout::lay(&lanes);
     let mut main = el("main").attr("class", "board");
-    for (lane, title) in titles.into_iter().enumerate() {
+    for (lane, &title) in titles.iter().enumerate() {
         let style = format!("grid-column:{};grid-row:1", lane + 1);
-        main = main.kid(text("h2", title).attr("style", style));
+        main = main.kid(
+            text("h2", title)
+                .attr("data-lane", title)
+                .attr("style", style),
+        );
     }
     for &(pull, spot) in &layout.cards {
-        let card = card(view, pull, &layout);
+        let card = card(view, pull, &layout, titles[spot.lane]);
         main = main.kid(card.attr("style", area(spot)));
     }
     frame(view.config, view.session, main)
