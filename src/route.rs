@@ -200,6 +200,15 @@ impl<H: Host> Site<'_, H> {
         match self.req.path.as_str() {
             "/automerge" => client.automerge(&install, number).await?,
             "/review" => client.release(&install, number).await?,
+            "/land" => {
+                // The page asks twice before it sets these fields.
+                if field(&form, "sure") != "yes" {
+                    return Err(Fault::new(400, "Confirm the landing in the page."));
+                }
+                client
+                    .land(&install, number, field(&form, "red") == "yes")
+                    .await?
+            }
             _ => {
                 let Some(tier) = Tier::named(field(&form, "tier")) else {
                     return Err(Fault::new(400, "Unknown tier."));
@@ -239,7 +248,7 @@ pub async fn serve<H: Host>(host: &H, config: &Config, req: &Request) -> Respons
         // GitHub sends the browser here after the app is installed.
         ("GET", "/setup") => Ok(Response::redirect("/".into())),
         ("GET", "/auth") => site.auth().await,
-        ("POST", "/tier" | "/automerge" | "/review") => site.act().await,
+        ("POST", "/tier" | "/automerge" | "/review" | "/land") => site.act().await,
         ("POST", "/logout") => site.logout(),
         _ => Err(Fault::new(404, "Not found.")),
     };

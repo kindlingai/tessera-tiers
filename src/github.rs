@@ -277,7 +277,9 @@ impl<H: Host> Client<'_, H> {
             return Ok(Value::Null);
         }
         if !(200..300).contains(&reply.status) {
-            let text = format!("GitHub answered {} for {what}", reply.status);
+            let said: Value = serde_json::from_slice(&reply.body).unwrap_or_default();
+            let why = said["message"].as_str().unwrap_or("no reason given");
+            let text = format!("GitHub answered {} for {what}: {why}", reply.status);
             return Err(Fault::new(502, text));
         }
         if reply.body.is_empty() {
@@ -425,6 +427,32 @@ input:{pullRequestId:$id,mergeMethod:SQUASH}){clientMutationId}}";
     pub async fn release(&self, install: &Install, number: u64) -> Result<(), Fault> {
         let (_, labels) = self.open(install, number).await?;
         self.unlabel(install, &labels, WAITS).await
+    }
+
+    /// Squashes the pull request into its base at once, past the merge
+    /// queue and its checks. CI that is not green needs `red` as well.
+    pub async fn land(&self, install: &Install, number: u64, red: bool) -> Result<(), Fault> {
+        let (found, _) = self.open(install, number).await?;
+        let (owner, name) = self.config.repo.split_once('/').unwrap_or_default();
+        let query = "query($owner:String!,$name:String!,$number:Int!){\
+repository(owner:$owner,name:$name){pullRequest(number:$number){\
+commits(last:1){nodes{commit{statusCheckRollup{state}}}}}}}";
+        let variables = json!({ "owner": owner, "name": name, "number": number });
+        let body = json!({ "query": query, "variables": variables });
+        let reply = self
+            .api("POST", "/graphql", &install.token, Some(body))
+            .await?;
+        let tip = &reply["data"]["repository"]["pullRequest"]["commits"]["nodes"][0]["commit"];
+        let ci = tip["statusCheckRollup"]["state"].as_str().unwrap_or("NONE");
+        if ci != "SUCCESS" && !red {
+            let text = format!("CI of #{number} is {ci}. Confirm again to land it anyway.");
+            return Err(Fault::new(409, text));
+        }
+        // The head the editor saw. A newer push makes GitHub refuse.
+        let body = json!({ "merge_method": "squash", "sha": found["head"]["sha"] });
+        let path = format!("/repos/{}/pulls/{number}/merge", self.config.repo);
+        self.api("PUT", &path, &install.token, Some(body)).await?;
+        Ok(())
     }
 
     /// The login and user id behind an OAuth `code`.
