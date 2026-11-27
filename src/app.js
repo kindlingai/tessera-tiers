@@ -100,6 +100,24 @@ async function settle() {
     }
 }
 
+// Asks before a landing, and once more when CI is not green.
+function confirmLanding(card, body) {
+    const number = card.id.slice(3);
+    const ask = `Squash #${number} into main now, past the merge queue and its checks?`;
+    if (!confirm(ask)) {
+        return false;
+    }
+    body.set("sure", "yes");
+    const ci = card.dataset.ci;
+    if (ci !== "success") {
+        if (!confirm(`CI of #${number} is ${ci}. Land it anyway?`)) {
+            return false;
+        }
+        body.set("red", "yes");
+    }
+    return true;
+}
+
 async function send(event) {
     const form = event.target;
     const card = form.closest("article");
@@ -110,6 +128,9 @@ async function send(event) {
     const button = event.submitter;
     const body = new URLSearchParams(new FormData(form, button));
     const to = (button && button.getAttribute("formaction")) || form.getAttribute("action");
+    if (to === "/land" && !confirmLanding(card, body)) {
+        return;
+    }
     card.classList.add("locked");
     card.querySelector(".error")?.remove();
     pending += 1;

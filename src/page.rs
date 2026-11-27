@@ -28,7 +28,7 @@ td,th{text-align:left;padding:.25rem 1.5rem .25rem 0;white-space:nowrap;border-b
 td:nth-child(2){font-family:ui-monospace,monospace}\
 .meter{display:inline-block;width:8rem;height:.6rem;background:#eee;border-radius:3px;margin-right:.5rem}\
 .meter i{display:block;height:100%;background:#888;border-radius:3px}.bad .meter i{background:#c00}ul{margin:.3rem 0;padding-left:1.2rem}\
-.locked{opacity:.4;pointer-events:none}.error{color:#c00}";
+.locked{opacity:.4;pointer-events:none}button.danger{border-color:#c00;color:#c00}.error{color:#c00}";
 
 pub struct View<'a> {
     pub config: &'a Config,
@@ -123,6 +123,10 @@ fn controls(pull: &Pull, session: &Session) -> El {
         let button = text("button", "remove needs-human-review");
         form = form.kid(button.attr("formaction", "/review"));
     }
+    if !pull.draft {
+        let button = text("button", "emergency landing").attr("class", "danger");
+        form = form.kid(button.attr("formaction", "/land"));
+    }
     form
 }
 
@@ -153,6 +157,7 @@ fn card(view: &View, pull: &Pull, layout: &Layout) -> El {
         .attr("id", format!("pr-{}", pull.number))
         .attr("data-shares", shares)
         .attr("data-conflicts", conflicts)
+        .attr("data-ci", pull.ci.as_deref().unwrap_or("none"))
         .attr("class", marks(pull.number, layout))
         .kid(el("p").kid(link).text(by))
         .kid(tags(pull))

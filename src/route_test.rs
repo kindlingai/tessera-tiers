@@ -119,11 +119,18 @@ impl Host for Fake {
         let path = call.url.split_once(".test").unwrap().1;
         let zip =
             (call.url == "https://store.test/blob").then(|| zip("lint.json", LINT.as_bytes()));
+        let sent = call.body.unwrap_or_default();
         let body = match (call.method, path) {
             ("GET", "/repos/o/r/installation") => r#"{"id":7,"app_slug":"tiers"}"#,
             ("POST", "/app/installations/7/access_tokens") => r#"{"token":"app"}"#,
+            ("POST", "/graphql") if sent.contains("pullRequest(number") => {
+                r#"{"data":{"repository":{"pullRequest":{"commits":{"nodes":[
+                {"commit":{"statusCheckRollup":{"state":"PENDING"}}}]}}}}}"#
+            }
             ("POST", "/graphql") => PULLS,
-            ("GET", "/repos/o/r/pulls/5") => r#"{"state":"open","labels":[{"name":"landing"}]}"#,
+            ("GET", "/repos/o/r/pulls/5") => {
+                r#"{"state":"open","head":{"sha":"tip"},"labels":[{"name":"landing"}]}"#
+            }
             ("POST", "/login/oauth/access_token") => r#"{"access_token":"user"}"#,
             ("GET", "/user") => r#"{"login":"Matt","id":7}"#,
             ("GET", "/repos/o/r/actions/cache/usage") => USAGE,
@@ -134,7 +141,6 @@ impl Host for Fake {
             }
             _ => "[]",
         };
-        let sent = call.body.unwrap_or_default();
         let line = format!("{} {path} {auth} {sent}", call.method);
         self.calls.borrow_mut().push(line);
         // The landing label is gone when the delete arrives.
@@ -285,9 +291,9 @@ fn board_escapes_text() {
     assert!(actions.iter().all(|a| page.contains(a)));
     // Draft #2 is in the left lane and conflicts with #3, which is ahead.
     let spots = [
-        r#"<article id="pr-4" data-shares="" data-conflicts="" class="" style="grid-column:5/6;grid-row:2/3">"#,
-        r#"<article id="pr-3" data-shares="" data-conflicts="" class="blocks" style="grid-column:4/5;grid-row:2/3">"#,
-        r#"<article id="pr-2" data-shares="4" data-conflicts="3" class="blocked" style="grid-column:1/2;grid-row:3/4">"#,
+        r#"<article id="pr-4" data-shares="" data-conflicts="" data-ci="none" class="" style="grid-column:5/6;grid-row:2/3">"#,
+        r#"<article id="pr-3" data-shares="" data-conflicts="" data-ci="none" class="blocks" style="grid-column:4/5;grid-row:2/3">"#,
+        r#"<article id="pr-2" data-shares="4" data-conflicts="3" data-ci="failure" class="blocked" style="grid-column:1/2;grid-row:3/4">"#,
     ];
     assert!(spots.iter().all(|s| page.contains(s)), "{page}");
     let queued = page.split(r#"id="pr-4""#).nth(1).unwrap();
@@ -324,4 +330,15 @@ fn tabs_show_usage() {
     assert!(limits.contains(">bbbbbbbb</a>. 2 of 3 measures") && limits.contains(file));
     let last = fake.calls.borrow().last().cloned().unwrap();
     assert!(last.starts_with("GET /blob  "));
+}
+
+#[test]
+fn landing_asks_twice() {
+    let fake = Fake::default();
+    let land = |form: &str| ask(&fake, "POST", "/land", "Matt", form).status;
+    assert_eq!(land("pr=5&csrf=token"), 400);
+    assert_eq!(land("pr=5&csrf=token&sure=yes"), 409);
+    assert_eq!(land("pr=5&csrf=token&sure=yes&red=yes"), 303);
+    let merged = r#"PUT /repos/o/r/pulls/5/merge Bearer app {"merge_method":"squash","sha":"tip"}"#;
+    assert!(fake.calls.borrow().iter().any(|c| c == merged));
 }
