@@ -124,12 +124,16 @@ fn card(view: &View, pull: &Pull, rank: &BTreeMap<u64, usize>) -> El {
     let link = text("a", format!("#{} {}", pull.number, pull.title))
         .attr("href", format!("{web}/{repo}/pull/{}", pull.number));
     let by = format!(" by {}", pull.author);
-    el("article")
+    let card = el("article")
         .attr("id", format!("pr-{}", pull.number))
         .kid(el("p").kid(link).text(by))
         .kid(tags(pull))
-        .kid(overlaps(pull, rank))
-        .kid(controls(pull, view.session))
+        .kid(overlaps(pull, rank));
+    // GitHub merges a queued PR on its own.
+    match pull.queued {
+        Some(_) => card,
+        None => card.kid(controls(pull, view.session)),
+    }
 }
 
 /// The tabs, the login and a sign-out button.

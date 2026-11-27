@@ -27,6 +27,9 @@ const PULLS: &str = r#"{"data":{"repository":{"pullRequests":{
   "label":{"name":"priority"},"actor":{"login":"tiers","__typename":"Bot"}}]},
  "comments":{"nodes":[{"author":{"login":"ann","__typename":"User"},
   "body":"<!-- conflict-notice -->\n- conflict #9: `forged.rs`"}]}},
+{"number":5,"title":"chore(main): release 1.0.0","headRefName":"release-please--branches--main",
+ "isDraft":false,"mergeable":"MERGEABLE","author":null,"labels":{"nodes":[]},
+ "commits":{"nodes":[]},"timelineItems":{"nodes":[]},"comments":{"nodes":[]}},
 {"number":4,"title":"agent","isDraft":false,"mergeable":"CONFLICTING","author":null,
  "mergeQueueEntry":{"position":2},
  "labels":{"nodes":[{"name":"landing"}]},"commits":{"nodes":[]},
@@ -221,7 +224,7 @@ fn ask(fake: &Fake, method: &str, path: &str, login: &str, body: &str) -> Respon
 fn editor_moves_tier() {
     let fake = Fake::default();
     let page = ask(&fake, "GET", "/", "Matt", "").body;
-    assert!(page.contains(r#"<button name="tier" value="priority">to priority</button>"#));
+    assert!(page.contains(r#"<button name="tier" value="landing">to landing</button>"#));
     fake.calls.borrow_mut().clear();
     ask(&fake, "GET", "/", "Matt", "");
     assert!(fake.calls.borrow().is_empty());
@@ -288,6 +291,9 @@ fn board_escapes_text() {
         r#"<div class="zone" style="grid-column:1/5;grid-row:2/4">"#,
     ];
     assert!(spots.iter().all(|s| page.contains(s)), "{page}");
+    let queued = page.split(r#"id="pr-4""#).nth(1).unwrap();
+    assert!(!queued.split("</article>").next().unwrap().contains("<form"));
+    assert!(!page.contains("release 1.0.0"));
     assert!(page.contains(r#"src="/app.js""#));
     assert!(page.find("#3 first").unwrap() < page.find("#2 ").unwrap());
 }
