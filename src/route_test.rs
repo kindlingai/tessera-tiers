@@ -288,7 +288,8 @@ fn board_escapes_text() {
         r#"<article id="pr-4" style="grid-column:5/6;grid-row:2/3">"#,
         r#"<article id="pr-3" style="grid-column:4/5;grid-row:2/3">"#,
         r#"<article id="pr-2" style="grid-column:1/2;grid-row:3/4">"#,
-        r#"<div class="zone" style="grid-column:1/5;grid-row:2/4">"#,
+        r#"<div class="zone blocks" style="grid-column:4/5;grid-row:2/3">"#,
+        r#"<div class="zone blocked" style="grid-column:1/2;grid-row:3/4">"#,
     ];
     assert!(spots.iter().all(|s| page.contains(s)), "{page}");
     let queued = page.split(r#"id="pr-4""#).nth(1).unwrap();

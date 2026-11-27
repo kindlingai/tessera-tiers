@@ -15,7 +15,7 @@ const TABS: [(&str, &str); 3] = [("/", "Tiers"), ("/cache", "Cache"), ("/limits"
 
 const STYLE: &str = "body{font:14px system-ui;margin:1rem}\
 main{display:grid;grid-template-columns:repeat(5,1fr);gap:0 1rem;align-items:start}\
-.zone{background:#c002;border-radius:6px;margin:-.25rem;align-self:stretch}article{position:relative;background:#fff}\
+.zone{border-radius:6px;margin:.15rem -.35rem;align-self:stretch}.blocked{background:#c003}.blocks{background:#a603}article{position:relative;background:#fff}\
 article{border:1px solid #888;border-radius:4px;padding:.5rem;margin:.5rem 0}\
 .tag{border:1px solid #888;border-radius:4px;padding:0 .3rem;margin-right:.3rem}\
 .bad{border-color:#c00;color:#c00}li.bad{border:0}.holds{color:#740}\
@@ -173,16 +173,10 @@ pub(crate) fn welcome(config: &Config) -> String {
     shell(config, [el("p").kid(link), el("main")])
 }
 
-/// Grid lines for a run of cells. Row 1 holds the lane titles.
-fn area(first: Spot, last: Spot) -> String {
-    let (lanes, rows) = (
-        (first.lane + 1, last.lane + 2),
-        (first.row + 2, last.row + 3),
-    );
-    format!(
-        "grid-column:{}/{};grid-row:{}/{}",
-        lanes.0, lanes.1, rows.0, rows.1
-    )
+/// Grid lines for a cell. Row 1 holds the lane titles.
+fn area(spot: Spot) -> String {
+    let (lane, row) = (spot.lane + 1, spot.row + 2);
+    format!("grid-column:{lane}/{};grid-row:{row}/{}", lane + 1, row + 1)
 }
 
 /// The lanes from left to right, toward the merge.
@@ -201,13 +195,18 @@ pub(crate) fn board(view: &View) -> String {
         let style = format!("grid-column:{};grid-row:1", lane + 1);
         main = main.kid(text("h2", title).attr("style", style));
     }
-    for zone in &layout.zones {
-        let style = area(zone.first, zone.last);
-        main = main.kid(el("div").attr("class", "zone").attr("style", style));
+    let marks = [
+        ("zone blocks", &layout.blocking),
+        ("zone blocked", &layout.blocked),
+    ];
+    for (class, spots) in marks {
+        for &spot in spots {
+            main = main.kid(el("div").attr("class", class).attr("style", area(spot)));
+        }
     }
     for &(pull, spot) in &layout.cards {
         let card = card(view, pull, &layout.rank);
-        main = main.kid(card.attr("style", area(spot, spot)));
+        main = main.kid(card.attr("style", area(spot)));
     }
     frame(view.config, view.session, main)
 }
