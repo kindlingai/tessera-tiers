@@ -327,7 +327,9 @@ fn tabs_show_usage() {
         cache.contains("100%</span> 10.00 GiB of 10 GiB, GitHub default") && cache.contains(main)
     );
     let limits = ask(&fake, "GET", "/limits", "Matt", "").body;
-    let file = r#"dflash.rs</td><td>1000 / 1000</td><td><span class="meter" style="--share:100%" data-near="">"#;
+    let link = r#"<a href="https://web.test/o/r/blob/bbbbbbbbbbbb/engine/models/src/dflash.rs">"#;
+    assert!(limits.contains(link), "{limits}");
+    let file = r#"dflash.rs</a></td><td>1000 / 1000</td><td><span class="meter" style="--share:100%" data-near="">"#;
     assert!(limits.contains(">bbbbbbbb</a>. 2 of 3 measures") && limits.contains(file));
     let last = fake.calls.borrow().last().cloned().unwrap();
     assert!(last.starts_with("GET /blob  "));

@@ -369,6 +369,15 @@ td:nth-child(2) {
     font-size: .8rem;
 }
 
+td a {
+    text-decoration: none;
+}
+
+td a:hover {
+    color: var(--pending);
+    text-decoration: underline;
+}
+
 .meter {
     display: inline-flex;
     align-items: center;

@@ -101,7 +101,12 @@ pub(crate) fn render(config: &Config, session: &Session, limits: &Limits) -> Str
     for m in near {
         let row: Vec<Part> = vec![
             m.rule.as_str().into(),
-            m.path.as_str().into(),
+            text("a", m.path.as_str())
+                .attr(
+                    "href",
+                    format!("{web}/{repo}/blob/{}/{}", limits.sha, m.path),
+                )
+                .into(),
             format!("{} / {}", m.value, m.max).into(),
             page::meter(m.share()).into(),
         ];
