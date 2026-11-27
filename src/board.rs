@@ -31,6 +31,7 @@ impl Tier {
     }
 }
 
+#[derive(Clone)]
 pub struct Pull {
     pub number: u64,
     pub title: String,
@@ -54,9 +55,21 @@ pub struct Pull {
     pub overlaps: Vec<Overlap>,
 }
 
-/// One tier's pull requests, first labelled first.
+/// One tier's pull requests outside the merge queue, first labelled first.
 pub fn column(pulls: &[Pull], tier: Tier) -> Vec<&Pull> {
-    let mut column: Vec<&Pull> = pulls.iter().filter(|p| p.tier == tier).collect();
+    let mut column = Vec::new();
+    for pull in pulls {
+        if pull.tier == tier && pull.queued.is_none() {
+            column.push(pull);
+        }
+    }
     column.sort_by(|a, b| (&a.since, a.number).cmp(&(&b.since, b.number)));
     column
+}
+
+/// The merge queue in its order.
+pub fn queue(pulls: &[Pull]) -> Vec<&Pull> {
+    let mut queue: Vec<&Pull> = pulls.iter().filter(|p| p.queued.is_some()).collect();
+    queue.sort_by_key(|p| p.queued);
+    queue
 }

@@ -1,7 +1,7 @@
 //! Draws the board. The element builder escapes all text.
 
 use crate::Config;
-use crate::board::{Pull, Tier, column};
+use crate::board::{Pull, Tier, column, queue};
 use crate::html::{El, Part, el, text};
 use crate::overlap::Kind;
 use crate::session::Session;
@@ -12,7 +12,7 @@ pub(crate) const NEAR: u64 = 90;
 const TABS: [(&str, &str); 3] = [("/", "Tiers"), ("/cache", "Cache"), ("/limits", "Limits")];
 
 const STYLE: &str = "body{font:14px system-ui;margin:1rem}\
-main{display:grid;grid-template-columns:repeat(3,1fr);gap:1rem}\
+main{display:grid;grid-template-columns:repeat(4,1fr);gap:1rem}\
 article{border:1px solid #888;border-radius:4px;padding:.5rem;margin:.5rem 0}\
 .tag{border:1px solid #888;border-radius:4px;padding:0 .3rem;margin-right:.3rem}\
 .bad{border-color:#c00;color:#c00}li.bad{border:0}\
@@ -170,11 +170,15 @@ pub(crate) fn welcome(config: &Config) -> String {
 }
 
 pub(crate) fn board(view: &View) -> String {
-    let mut main = el("main");
+    let mut columns = Vec::new();
     for tier in Tier::ALL {
-        let mut section = el("section").attr("id", tier.name());
-        section = section.kid(text("h2", tier.name()));
-        for pull in column(view.pulls, tier) {
+        columns.push((tier.name(), tier.name(), column(view.pulls, tier)));
+    }
+    columns.push(("queue", "merge queue", queue(view.pulls)));
+    let mut main = el("main");
+    for (id, title, pulls) in columns {
+        let mut section = el("section").attr("id", id).kid(text("h2", title));
+        for pull in pulls {
             section = section.kid(card(view, pull));
         }
         main = main.kid(section);

@@ -1,7 +1,7 @@
 //! The routes against a fake GitHub.
 
 use crate::session::{self, Session};
-use crate::{Call, Config, Fault, Host, Reply, Request, Response, serve};
+use crate::{Call, Config, Fault, Host, Recent, Reply, Request, Response, serve};
 use std::cell::RefCell;
 use std::pin::pin;
 use std::task::{Context, Poll, Waker};
@@ -21,13 +21,14 @@ const PULLS: &str = r#"{"data":{"repository":{"pullRequests":{
  "comments":{"nodes":[{"author":{"login":"github-actions","__typename":"Bot"},
   "body":"<!-- conflict-notice -->\n### Overlap with other open pull requests\nA conflict line names files that conflict with that PR.\nThe PR that merges second must rebase. A shared line names\nfiles both PRs change that merge cleanly. This notice fails no check.\n\n- conflict #3: `a/<b>.rs`\n- shared #4: `c.rs` `d.rs`\n"}]}},
 {"number":3,"title":"first","isDraft":false,"mergeable":"MERGEABLE","author":null,
- "autoMergeRequest":{"enabledAt":"2026-11-27T00:00:00Z"},"mergeQueueEntry":{"position":2},
+ "autoMergeRequest":{"enabledAt":"2026-11-27T00:00:00Z"},
  "labels":{"nodes":[{"name":"priority"}]},"commits":{"nodes":[]},
  "timelineItems":{"nodes":[{"createdAt":"2026-11-01T00:00:00Z",
   "label":{"name":"priority"},"actor":{"login":"tiers","__typename":"Bot"}}]},
  "comments":{"nodes":[{"author":{"login":"ann","__typename":"User"},
   "body":"<!-- conflict-notice -->\n- conflict #9: `forged.rs`"}]}},
 {"number":4,"title":"agent","isDraft":false,"mergeable":"CONFLICTING","author":null,
+ "mergeQueueEntry":{"position":2},
  "labels":{"nodes":[{"name":"landing"}]},"commits":{"nodes":[]},
  "timelineItems":{"nodes":[{"createdAt":"2026-11-03T00:00:00Z",
   "label":{"name":"landing"},"actor":{"login":"mmastrac","__typename":"User"}}]},
@@ -105,6 +106,7 @@ fn zip(name: &str, data: &[u8]) -> Vec<u8> {
 #[derive(Default)]
 struct Fake {
     calls: RefCell<Vec<String>>,
+    recent: Recent,
 }
 
 impl Host for Fake {
@@ -157,6 +159,10 @@ impl Host for Fake {
 
     fn now(&self) -> u64 {
         1000
+    }
+
+    fn recent(&self) -> &Recent {
+        &self.recent
     }
 }
 
@@ -217,6 +223,8 @@ fn editor_moves_tier() {
     let page = ask(&fake, "GET", "/", "Matt", "").body;
     assert!(page.contains(r#"<button name="tier" value="priority">to priority</button>"#));
     fake.calls.borrow_mut().clear();
+    ask(&fake, "GET", "/", "Matt", "");
+    assert!(fake.calls.borrow().is_empty());
     let form = "pr=5&tier=priority&csrf=token";
     let done = ask(&fake, "POST", "/tier", "Matt", form);
     assert_eq!(done.status, 303);
@@ -235,6 +243,15 @@ fn editor_moves_tier() {
     assert!(calls[3].starts_with("POST /graphql Bearer app ") && calls[3].contains("SQUASH"));
     let released = format!("DELETE {labels}/needs-human-review Bearer app ");
     assert_eq!(calls.last(), Some(&released));
+    drop(calls);
+    ask(&fake, "GET", "/", "Matt", "");
+    assert!(
+        fake.calls
+            .borrow()
+            .last()
+            .unwrap()
+            .starts_with("POST /graphql")
+    );
 }
 
 #[test]
@@ -261,12 +278,9 @@ fn board_escapes_text() {
     assert!(page.contains("shares files with #4: c.rs, d.rs"));
     assert!(page.contains("label set by mmastrac") && !page.contains("forged.rs"));
     assert!(page.contains("no overlaps") && page.contains("overlaps not checked"));
-    let actions = [
-        r#"formaction="/review""#,
-        r#"formaction="/automerge""#,
-        "auto-merge on",
-    ];
+    let actions = [r#"formaction="/review""#, "auto-merge on"];
     assert!(actions.iter().all(|a| page.contains(a)));
+    assert!(page.contains(r#"<h2>merge queue</h2><article id="pr-4">"#));
     assert!(page.contains(r#"<article id="pr-3">"#) && page.contains(r#"src="/app.js""#));
     assert!(page.find("#3 first").unwrap() < page.find("#2 ").unwrap());
 }

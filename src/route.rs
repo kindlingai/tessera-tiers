@@ -1,6 +1,6 @@
 //! Maps requests to pages and tier changes.
 
-use crate::board::Tier;
+use crate::board::{Pull, Tier};
 use crate::github::Client;
 use crate::page::{self, View};
 use crate::session::{self, Session};
@@ -108,12 +108,17 @@ impl<H: Host> Site<'_, H> {
         let session = self.editor(session)?;
         let config = self.config;
         let client = self.client();
-        let install = client.install().await?;
         let page = match path {
-            "/cache" => cache::render(config, session, &cache::read(&client, &install).await?),
-            "/limits" => limits::render(config, session, &limits::read(&client, &install).await?),
+            "/cache" => {
+                let install = client.install().await?;
+                cache::render(config, session, &cache::read(&client, &install).await?)
+            }
+            "/limits" => {
+                let install = client.install().await?;
+                limits::render(config, session, &limits::read(&client, &install).await?)
+            }
             _ => {
-                let pulls = client.pulls(&install).await?;
+                let pulls = self.pulls().await?;
                 page::board(&View {
                     config,
                     session,
@@ -122,6 +127,20 @@ impl<H: Host> Site<'_, H> {
             }
         };
         Ok(Response::new(200, "text/html", page))
+    }
+
+    /// The open pull requests, from the last read while it is recent.
+    async fn pulls(&self) -> Result<Vec<Pull>, Fault> {
+        let recent = self.host.recent();
+        let now = self.host.now();
+        if let Some(pulls) = recent.get(now) {
+            return Ok(pulls);
+        }
+        let version = recent.version();
+        let client = self.client();
+        let pulls = client.pulls(&client.install().await?).await?;
+        recent.put(version, now, pulls.clone());
+        Ok(pulls)
     }
 
     fn login(&self) -> Response {
@@ -188,6 +207,7 @@ impl<H: Host> Site<'_, H> {
                 client.retier(&install, number, tier).await?
             }
         }
+        self.host.recent().clear();
         Ok(Response::redirect("/".into()))
     }
 
