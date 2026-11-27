@@ -6,6 +6,7 @@ mod cache;
 mod edge;
 mod github;
 mod html;
+mod layout;
 mod limits;
 mod overlap;
 mod page;
@@ -17,6 +18,42 @@ mod unzip;
 mod route_test;
 
 pub use route::{Request, Response, serve};
+
+/// Draws the board from live data on a developer machine.
+#[cfg(not(target_arch = "wasm32"))]
+pub mod preview {
+    use crate::page::{self, View};
+    use crate::session::Session;
+
+    /// The GraphQL query for one page of open pull requests.
+    pub const QUERY: &str = crate::github::QUERY;
+
+    /// The board for reply pages of `QUERY`, with buttons that go nowhere.
+    pub fn board(repo: &str, pages: Vec<serde_json::Value>) -> String {
+        let config = crate::Config {
+            repo: repo.into(),
+            client_id: String::new(),
+            client_secret: String::new(),
+            session_key: Vec::new(),
+            editors: Vec::new(),
+            origin: String::new(),
+            api: String::new(),
+            web: "https://github.com".into(),
+        };
+        let session = Session {
+            login: "preview".into(),
+            id: 0,
+            csrf: String::new(),
+            expires: 0,
+        };
+        let pulls = crate::github::preview(pages, "tessera-tiers");
+        page::board(&View {
+            config: &config,
+            session: &session,
+            pulls: &pulls,
+        })
+    }
+}
 
 use board::Pull;
 use std::sync::Mutex;

@@ -1,10 +1,12 @@
 //! Draws the board. The element builder escapes all text.
 
 use crate::Config;
-use crate::board::{Pull, Tier, column, queue};
+use crate::board::{Pull, Tier, column, drafts, queue};
 use crate::html::{El, Part, el, text};
+use crate::layout::{self, Spot};
 use crate::overlap::Kind;
 use crate::session::Session;
+use std::collections::BTreeMap;
 
 /// The percent of a limit the page marks as near.
 pub(crate) const NEAR: u64 = 90;
@@ -12,10 +14,11 @@ pub(crate) const NEAR: u64 = 90;
 const TABS: [(&str, &str); 3] = [("/", "Tiers"), ("/cache", "Cache"), ("/limits", "Limits")];
 
 const STYLE: &str = "body{font:14px system-ui;margin:1rem}\
-main{display:grid;grid-template-columns:repeat(4,1fr);gap:1rem}\
+main{display:grid;grid-template-columns:repeat(5,1fr);gap:0 1rem;align-items:start}\
+.zone{background:#c002;border-radius:6px;margin:-.25rem;align-self:stretch}article{position:relative;background:#fff}\
 article{border:1px solid #888;border-radius:4px;padding:.5rem;margin:.5rem 0}\
 .tag{border:1px solid #888;border-radius:4px;padding:0 .3rem;margin-right:.3rem}\
-.bad{border-color:#c00;color:#c00}li.bad{border:0}\
+.bad{border-color:#c00;color:#c00}li.bad{border:0}.holds{color:#740}\
 form{display:inline}nav a{margin-right:1rem}\
 td,th{text-align:left;padding:0 1rem 0 0}ul{margin:.3rem 0;padding-left:1.2rem}\
 .locked{opacity:.4;pointer-events:none}.error{color:#c00}";
@@ -43,9 +46,6 @@ fn tags(pull: &Pull) -> El {
     let ci = pull.ci.as_deref().unwrap_or("no checks");
     let red = matches!(ci, "failure" | "error");
     tags = tags.kid(tag(format!("CI {ci}"), red));
-    if pull.draft {
-        tags = tags.kid(tag("draft", false));
-    }
     if pull.stuck {
         tags = tags.kid(tag("conflicts with main", true));
     }
@@ -65,20 +65,20 @@ fn tags(pull: &Pull) -> El {
     tags
 }
 
-fn overlaps(pull: &Pull) -> El {
+/// A conflict reads "conflicts with" from the PR behind and "blocks" from
+/// the PR ahead, because the PR ahead merges first.
+fn overlaps(pull: &Pull, rank: &BTreeMap<u64, usize>) -> El {
+    let mine = rank.get(&pull.number);
     let mut list = el("ul");
     for overlap in &pull.overlaps {
-        let verb = match overlap.kind {
-            Kind::Conflict => "conflicts with",
-            Kind::Shared => "shares files with",
+        let behind = mine < rank.get(&overlap.other);
+        let (verb, class) = match overlap.kind {
+            Kind::Conflict if behind => ("blocks", "holds"),
+            Kind::Conflict => ("conflicts with", "bad"),
+            Kind::Shared => ("shares files with", ""),
         };
         let files = overlap.files.join(", ");
         let line = format!("{verb} #{}: {files}", overlap.other);
-        let class = if overlap.kind == Kind::Conflict {
-            "bad"
-        } else {
-            ""
-        };
         list = list.kid(text("li", line).attr("class", class));
     }
     if !pull.overlaps.is_empty() {
@@ -119,7 +119,7 @@ fn controls(pull: &Pull, session: &Session) -> El {
     form
 }
 
-fn card(view: &View, pull: &Pull) -> El {
+fn card(view: &View, pull: &Pull, rank: &BTreeMap<u64, usize>) -> El {
     let Config { web, repo, .. } = view.config;
     let link = text("a", format!("#{} {}", pull.number, pull.title))
         .attr("href", format!("{web}/{repo}/pull/{}", pull.number));
@@ -128,7 +128,7 @@ fn card(view: &View, pull: &Pull) -> El {
         .attr("id", format!("pr-{}", pull.number))
         .kid(el("p").kid(link).text(by))
         .kid(tags(pull))
-        .kid(overlaps(pull))
+        .kid(overlaps(pull, rank))
         .kid(controls(pull, view.session))
 }
 
@@ -169,19 +169,41 @@ pub(crate) fn welcome(config: &Config) -> String {
     shell(config, [el("p").kid(link), el("main")])
 }
 
+/// Grid lines for a run of cells. Row 1 holds the lane titles.
+fn area(first: Spot, last: Spot) -> String {
+    let (lanes, rows) = (
+        (first.lane + 1, last.lane + 2),
+        (first.row + 2, last.row + 3),
+    );
+    format!(
+        "grid-column:{}/{};grid-row:{}/{}",
+        lanes.0, lanes.1, rows.0, rows.1
+    )
+}
+
+/// The lanes from left to right, toward the merge.
 pub(crate) fn board(view: &View) -> String {
-    let mut columns = Vec::new();
-    for tier in Tier::ALL {
-        columns.push((tier.name(), tier.name(), column(view.pulls, tier)));
+    let mut titles = vec!["draft"];
+    let mut lanes = vec![drafts(view.pulls)];
+    for tier in [Tier::Untagged, Tier::Landing, Tier::Priority] {
+        titles.push(tier.name());
+        lanes.push(column(view.pulls, tier));
     }
-    columns.push(("queue", "merge queue", queue(view.pulls)));
+    titles.push("merge queue");
+    lanes.push(queue(view.pulls));
+    let layout = layout::lay(&lanes);
     let mut main = el("main");
-    for (id, title, pulls) in columns {
-        let mut section = el("section").attr("id", id).kid(text("h2", title));
-        for pull in pulls {
-            section = section.kid(card(view, pull));
-        }
-        main = main.kid(section);
+    for (lane, title) in titles.into_iter().enumerate() {
+        let style = format!("grid-column:{};grid-row:1", lane + 1);
+        main = main.kid(text("h2", title).attr("style", style));
+    }
+    for zone in &layout.zones {
+        let style = area(zone.first, zone.last);
+        main = main.kid(el("div").attr("class", "zone").attr("style", style));
+    }
+    for &(pull, spot) in &layout.cards {
+        let card = card(view, pull, &layout.rank);
+        main = main.kid(card.attr("style", area(spot, spot)));
     }
     frame(view.config, view.session, main)
 }

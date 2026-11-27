@@ -55,11 +55,19 @@ pub struct Pull {
     pub overlaps: Vec<Overlap>,
 }
 
-/// One tier's pull requests outside the merge queue, first labelled first.
+/// Draft pull requests, oldest first.
+pub fn drafts(pulls: &[Pull]) -> Vec<&Pull> {
+    let mut drafts: Vec<&Pull> = pulls.iter().filter(|p| p.draft).collect();
+    drafts.sort_by_key(|p| p.number);
+    drafts
+}
+
+/// One tier's ready pull requests outside the merge queue, first labelled
+/// first.
 pub fn column(pulls: &[Pull], tier: Tier) -> Vec<&Pull> {
     let mut column = Vec::new();
     for pull in pulls {
-        if pull.tier == tier && pull.queued.is_none() {
+        if pull.tier == tier && !pull.draft && pull.queued.is_none() {
             column.push(pull);
         }
     }
