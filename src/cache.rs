@@ -1,8 +1,8 @@
 //! The repository's GitHub Actions cache against its limit.
 
 use crate::github::{Client, Install};
-use crate::html::{El, Part, el, table, text};
-use crate::page::{self, NEAR};
+use crate::html::{El, Part, el, table};
+use crate::page;
 use crate::session::Session;
 use crate::{Config, Fault, Host};
 use std::collections::BTreeMap;
@@ -83,13 +83,12 @@ fn usage(cache: &Cache) -> El {
         ", GitHub default"
     };
     let line = format!(
-        "{} of {limit} GiB{source} ({share}%), {} caches. Over the limit, \
+        " {} of {limit} GiB{source}, {} caches. Over the limit, \
 GitHub evicts the least recently used caches.",
         gib(cache.bytes),
         cache.count,
     );
-    let class = if share >= NEAR { "bad" } else { "" };
-    text("p", line).attr("class", class)
+    el("p").kid(page::meter(share)).text(line)
 }
 
 pub(crate) fn render(config: &Config, session: &Session, cache: &Cache) -> String {

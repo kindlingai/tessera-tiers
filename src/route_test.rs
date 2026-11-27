@@ -316,9 +316,11 @@ fn tabs_show_usage() {
     let fake = Fake::default();
     let cache = ask(&fake, "GET", "/cache", "Matt", "").body;
     let main = "<td>refs/heads/main</td><td>2</td><td>2.00 GiB</td><td>2026-11-03</td>";
-    assert!(cache.contains("10.00 GiB of 10 GiB, GitHub default (100%)") && cache.contains(main));
+    assert!(
+        cache.contains("100%</span> 10.00 GiB of 10 GiB, GitHub default") && cache.contains(main)
+    );
     let limits = ask(&fake, "GET", "/limits", "Matt", "").body;
-    let file = r#"dflash.rs</td><td>1000 of 1000</td><td><span class="bad">100%"#;
+    let file = r#"dflash.rs</td><td>1000 / 1000</td><td><span class="bad">"#;
     assert!(limits.contains(">bbbbbbbb</a>. 2 of 3 measures") && limits.contains(file));
     let last = fake.calls.borrow().last().cloned().unwrap();
     assert!(last.starts_with("GET /blob  "));
