@@ -49,6 +49,8 @@ pub struct Pull {
     pub stuck: bool,
     /// Auto-merge is on.
     pub merging: bool,
+    /// Position in the merge queue.
+    pub queued: Option<u64>,
     pub overlaps: Vec<Overlap>,
 }
 

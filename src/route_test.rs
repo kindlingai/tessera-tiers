@@ -21,7 +21,7 @@ const PULLS: &str = r#"{"data":{"repository":{"pullRequests":{
  "comments":{"nodes":[{"author":{"login":"github-actions","__typename":"Bot"},
   "body":"<!-- conflict-notice -->\n### Overlap with other open pull requests\nA conflict line names files that conflict with that PR.\nThe PR that merges second must rebase. A shared line names\nfiles both PRs change that merge cleanly. This notice fails no check.\n\n- conflict #3: `a/<b>.rs`\n- shared #4: `c.rs` `d.rs`\n"}]}},
 {"number":3,"title":"first","isDraft":false,"mergeable":"MERGEABLE","author":null,
- "autoMergeRequest":{"enabledAt":"2026-11-27T00:00:00Z"},
+ "autoMergeRequest":{"enabledAt":"2026-11-27T00:00:00Z"},"mergeQueueEntry":{"position":2},
  "labels":{"nodes":[{"name":"priority"}]},"commits":{"nodes":[]},
  "timelineItems":{"nodes":[{"createdAt":"2026-11-01T00:00:00Z",
   "label":{"name":"priority"},"actor":{"login":"tiers","__typename":"Bot"}}]},
