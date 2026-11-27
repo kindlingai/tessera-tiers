@@ -10,6 +10,60 @@ function kept(card) {
     return card.classList.contains("locked") || card.querySelector(".error");
 }
 
+const SVG = "http://www.w3.org/2000/svg";
+
+// The point on box `a` that faces box `b`, relative to `origin`.
+function edge(a, b, origin) {
+    const y = (a.top + a.bottom) / 2 - origin.top;
+    if (a.right <= b.left) {
+        return [a.right - origin.left, y];
+    }
+    if (b.right <= a.left) {
+        return [a.left - origin.left, y];
+    }
+    const x = (a.left + a.right) / 2 - origin.left;
+    return [x, (b.top > a.top ? a.bottom : a.top) - origin.top];
+}
+
+// One line behind the cards for each pair of PRs that touch the same files.
+function draw() {
+    const main = document.querySelector("main");
+    if (!main) {
+        return;
+    }
+    main.querySelector("svg.links")?.remove();
+    const svg = document.createElementNS(SVG, "svg");
+    svg.setAttribute("class", "links");
+    svg.setAttribute("width", main.scrollWidth);
+    svg.setAttribute("height", main.scrollHeight);
+    const origin = main.getBoundingClientRect();
+    const done = new Set();
+    for (const card of main.querySelectorAll("article")) {
+        const mine = Number(card.id.slice(3));
+        for (const kind of ["shares", "conflicts"]) {
+            for (const other of (card.dataset[kind] || "").split(" ").filter(Boolean)) {
+                const peer = document.getElementById("pr-" + other);
+                const key = [Math.min(mine, other), Math.max(mine, other), kind].join(" ");
+                if (!peer || done.has(key)) {
+                    continue;
+                }
+                done.add(key);
+                const a = card.getBoundingClientRect();
+                const b = peer.getBoundingClientRect();
+                const [x1, y1] = edge(a, b, origin);
+                const [x2, y2] = edge(b, a, origin);
+                const line = document.createElementNS(SVG, "line");
+                line.setAttribute("class", kind);
+                for (const [name, value] of Object.entries({ x1, y1, x2, y2 })) {
+                    line.setAttribute(name, value);
+                }
+                svg.append(line);
+            }
+        }
+    }
+    main.prepend(svg);
+}
+
 function follow(text) {
     const main = document.querySelector("main");
     const fresh = new DOMParser().parseFromString(text, "text/html").querySelector("main");
@@ -29,6 +83,7 @@ function follow(text) {
         }
     }
     main.replaceWith(document.adoptNode(fresh));
+    draw();
 }
 
 // A reply can predate another request's change, so once no request waits,
@@ -73,8 +128,11 @@ async function send(event) {
         note.textContent = error.message;
         card.append(note);
         card.classList.remove("locked");
+        draw();
     }
     await settle();
 }
 
 document.addEventListener("submit", send);
+addEventListener("resize", draw);
+draw();

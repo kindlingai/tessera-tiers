@@ -3,7 +3,7 @@
 use crate::Config;
 use crate::board::{Pull, Tier, column, drafts, queue};
 use crate::html::{El, Part, el, text};
-use crate::layout::{self, Spot};
+use crate::layout::{self, Layout, Spot};
 use crate::overlap::Kind;
 use crate::session::Session;
 use std::collections::BTreeMap;
@@ -14,8 +14,11 @@ pub(crate) const NEAR: u64 = 90;
 const TABS: [(&str, &str); 3] = [("/", "Tiers"), ("/cache", "Cache"), ("/limits", "Limits")];
 
 const STYLE: &str = "body{font:14px system-ui;margin:1rem}\
-main{display:grid;grid-template-columns:repeat(5,1fr);gap:0 1rem;align-items:start}\
-.zone{background:#c002;border-radius:6px;margin:-.25rem;align-self:stretch}article{position:relative;background:#fff}\
+main{position:relative;display:grid;grid-template-columns:repeat(5,1fr);gap:0 1rem;align-items:start}\
+.blocks{box-shadow:0 0 0 4px #a605}.blocked{box-shadow:0 0 0 4px #c005}\
+.blocks.blocked{box-shadow:0 0 0 4px #c005,0 0 0 8px #a605}article{position:relative;z-index:1;background:#fff}\
+svg.links{position:absolute;left:0;top:0;pointer-events:none;overflow:visible}\
+.links line{stroke:#888;stroke-width:2;stroke-dasharray:4 3}.links line.conflicts{stroke:#c00;stroke-dasharray:none}\
 article{border:1px solid #888;border-radius:4px;padding:.5rem;margin:.5rem 0}\
 .tag{border:1px solid #888;border-radius:4px;padding:0 .3rem;margin-right:.3rem}\
 .bad{border-color:#c00;color:#c00}li.bad{border:0}.holds{color:#740}\
@@ -84,8 +87,8 @@ fn overlaps(pull: &Pull, rank: &BTreeMap<u64, usize>) -> El {
     if !pull.overlaps.is_empty() {
         return list;
     }
-    // The workflow compares only ready pull requests that merge.
-    let none = if pull.draft || pull.stuck {
+    // The workflow compares only pull requests that merge with main.
+    let none = if pull.stuck {
         "overlaps not checked"
     } else {
         "no overlaps"
@@ -119,16 +122,37 @@ fn controls(pull: &Pull, session: &Session) -> El {
     form
 }
 
-fn card(view: &View, pull: &Pull, rank: &BTreeMap<u64, usize>) -> El {
+/// Rings for a PR that blocks another, or that another blocks.
+fn marks(number: u64, layout: &Layout) -> String {
+    let mut marks = Vec::new();
+    if layout.blocking.contains(&number) {
+        marks.push("blocks");
+    }
+    if layout.blocked.contains(&number) {
+        marks.push("blocked");
+    }
+    marks.join(" ")
+}
+
+fn card(view: &View, pull: &Pull, layout: &Layout) -> El {
     let Config { web, repo, .. } = view.config;
     let link = text("a", format!("#{} {}", pull.number, pull.title))
         .attr("href", format!("{web}/{repo}/pull/{}", pull.number));
     let by = format!(" by {}", pull.author);
+    let mut links = [Vec::new(), Vec::new()];
+    for overlap in &pull.overlaps {
+        let kind = usize::from(overlap.kind == Kind::Conflict);
+        links[kind].push(overlap.other.to_string());
+    }
+    let [shares, conflicts] = links.map(|numbers| numbers.join(" "));
     let card = el("article")
         .attr("id", format!("pr-{}", pull.number))
+        .attr("data-shares", shares)
+        .attr("data-conflicts", conflicts)
+        .attr("class", marks(pull.number, layout))
         .kid(el("p").kid(link).text(by))
         .kid(tags(pull))
-        .kid(overlaps(pull, rank));
+        .kid(overlaps(pull, &layout.rank));
     // GitHub merges a queued PR on its own.
     match pull.queued {
         Some(_) => card,
@@ -173,16 +197,10 @@ pub(crate) fn welcome(config: &Config) -> String {
     shell(config, [el("p").kid(link), el("main")])
 }
 
-/// Grid lines for a run of cells. Row 1 holds the lane titles.
-fn area(first: Spot, last: Spot) -> String {
-    let (lanes, rows) = (
-        (first.lane + 1, last.lane + 2),
-        (first.row + 2, last.row + 3),
-    );
-    format!(
-        "grid-column:{}/{};grid-row:{}/{}",
-        lanes.0, lanes.1, rows.0, rows.1
-    )
+/// Grid lines for a cell. Row 1 holds the lane titles.
+fn area(spot: Spot) -> String {
+    let (lane, row) = (spot.lane + 1, spot.row + 2);
+    format!("grid-column:{lane}/{};grid-row:{row}/{}", lane + 1, row + 1)
 }
 
 /// The lanes from left to right, toward the merge.
@@ -201,13 +219,9 @@ pub(crate) fn board(view: &View) -> String {
         let style = format!("grid-column:{};grid-row:1", lane + 1);
         main = main.kid(text("h2", title).attr("style", style));
     }
-    for zone in &layout.zones {
-        let style = area(zone.first, zone.last);
-        main = main.kid(el("div").attr("class", "zone").attr("style", style));
-    }
     for &(pull, spot) in &layout.cards {
-        let card = card(view, pull, &layout.rank);
-        main = main.kid(card.attr("style", area(spot, spot)));
+        let card = card(view, pull, &layout);
+        main = main.kid(card.attr("style", area(spot)));
     }
     frame(view.config, view.session, main)
 }
