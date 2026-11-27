@@ -267,6 +267,7 @@ fn board_escapes_text() {
         "auto-merge on",
     ];
     assert!(actions.iter().all(|a| page.contains(a)));
+    assert!(page.contains(r#"<article id="pr-3">"#) && page.contains(r#"src="/app.js""#));
     assert!(page.find("#3 first").unwrap() < page.find("#2 ").unwrap());
 }
 
