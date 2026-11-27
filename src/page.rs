@@ -17,7 +17,8 @@ article{border:1px solid #888;border-radius:4px;padding:.5rem;margin:.5rem 0}\
 .tag{border:1px solid #888;border-radius:4px;padding:0 .3rem;margin-right:.3rem}\
 .bad{border-color:#c00;color:#c00}li.bad{border:0}\
 form{display:inline}nav a{margin-right:1rem}\
-td,th{text-align:left;padding:0 1rem 0 0}ul{margin:.3rem 0;padding-left:1.2rem}";
+td,th{text-align:left;padding:0 1rem 0 0}ul{margin:.3rem 0;padding-left:1.2rem}\
+.locked{opacity:.4;pointer-events:none}.error{color:#c00}";
 
 pub struct View<'a> {
     pub config: &'a Config,
@@ -121,6 +122,7 @@ fn card(view: &View, pull: &Pull) -> El {
         .attr("href", format!("{web}/{repo}/pull/{}", pull.number));
     let by = format!(" by {}", pull.author);
     el("article")
+        .attr("id", format!("pr-{}", pull.number))
         .kid(el("p").kid(link).text(by))
         .kid(tags(pull))
         .kid(overlaps(pull))
@@ -152,7 +154,8 @@ fn shell(config: &Config, parts: [El; 2]) -> String {
     let head = el("head")
         .kid(el("meta").attr("charset", "utf-8"))
         .kid(text("title", title.clone()))
-        .kid(el("style").kid(Part::Raw(STYLE.into())));
+        .kid(el("style").kid(Part::Raw(STYLE.into())))
+        .kid(el("script").attr("src", "/app.js").attr("defer", ""));
     let body = el("body").kid(text("h1", title)).kids(parts);
     el("html").attr("lang", "en").kid(head).kid(body).page()
 }
@@ -166,7 +169,8 @@ pub(crate) fn welcome(config: &Config) -> String {
 pub(crate) fn board(view: &View) -> String {
     let mut main = el("main");
     for tier in Tier::ALL {
-        let mut section = el("section").kid(text("h2", tier.name()));
+        let mut section = el("section").attr("id", tier.name());
+        section = section.kid(text("h2", tier.name()));
         for pull in column(view.pulls, tier) {
             section = section.kid(card(view, pull));
         }

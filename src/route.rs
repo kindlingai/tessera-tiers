@@ -11,7 +11,10 @@ const STATE: &str = "__Host-state";
 /// Seconds to finish a sign-in.
 const STATE_LIFE: u64 = 600;
 const POLICY: &str = "default-src 'none'; style-src 'unsafe-inline'; \
+script-src 'self'; connect-src 'self'; \
 form-action 'self'; frame-ancestors 'none'; base-uri 'none'";
+/// Moves cards without a page load. The forms work without it.
+const SCRIPT: &str = include_str!("app.js");
 
 pub struct Request {
     pub method: String,
@@ -211,6 +214,7 @@ pub async fn serve<H: Host>(host: &H, config: &Config, req: &Request) -> Respons
     };
     let done = match (req.method.as_str(), req.path.as_str()) {
         ("GET", path @ ("/" | "/cache" | "/limits")) => site.tab(path).await,
+        ("GET", "/app.js") => Ok(Response::new(200, "text/javascript", SCRIPT.into())),
         ("GET", "/login") => Ok(site.login()),
         // GitHub sends the browser here after the app is installed.
         ("GET", "/setup") => Ok(Response::redirect("/".into())),
