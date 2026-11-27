@@ -19,6 +19,16 @@ jobs:
       - run: cargo clippy --target wasm32-unknown-unknown --locked -- -D warnings
       - run: cargo test --locked
 
+  # The one required check. Add each new PR job to needs.
+  success:
+    needs: [check]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') || contains(needs.*.result, 'skipped')
+        run: exit 1
+      - run: echo ok
+
   deploy:
     needs: check
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
