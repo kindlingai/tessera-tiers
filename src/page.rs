@@ -11,7 +11,12 @@ use std::collections::BTreeMap;
 /// The percent of a limit the page marks as near.
 pub(crate) const NEAR: u64 = 90;
 /// Each tab's path and name.
-const TABS: [(&str, &str); 3] = [("/", "Tiers"), ("/cache", "Cache"), ("/limits", "Limits")];
+const TABS: [(&str, &str); 4] = [
+    ("/", "Tiers"),
+    ("/rates", "Rates"),
+    ("/cache", "Cache"),
+    ("/limits", "Limits"),
+];
 
 pub struct View<'a> {
     pub config: &'a Config,

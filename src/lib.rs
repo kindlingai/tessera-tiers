@@ -10,6 +10,7 @@ mod layout;
 mod limits;
 mod overlap;
 mod page;
+mod rates;
 mod route;
 mod session;
 mod unzip;
@@ -165,4 +166,9 @@ pub trait Host {
     /// Seconds since the Unix epoch.
     fn now(&self) -> u64;
     fn recent(&self) -> &Recent;
+    /// A value from the store that all Worker instances share.
+    fn load(&self, key: &str) -> impl Future<Output = Option<String>>;
+    /// Keeps a value in the shared store for `life` seconds. A failure only
+    /// costs a rebuild.
+    fn store(&self, key: &str, value: String, life: u64) -> impl Future<Output = ()>;
 }

@@ -420,3 +420,118 @@ td a:hover {
 .meter[data-near] i::before {
     background: var(--bad);
 }
+
+/* Rates */
+
+main.rates section {
+    margin: 1rem 0 2rem;
+    padding: .9rem 1rem 1rem;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+}
+
+main.rates h2 {
+    margin: 0;
+    font-size: .75rem;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    color: var(--muted);
+}
+
+.legend {
+    margin: .3rem 0 .8rem;
+    font-size: .8rem;
+    color: var(--muted);
+}
+
+.legend span {
+    margin-right: 1rem;
+}
+
+.legend span::before {
+    content: "";
+    display: inline-block;
+    width: .6rem;
+    height: .6rem;
+    margin-right: .35rem;
+    border-radius: 2px;
+}
+
+.legend .opened::before {
+    background: var(--pending);
+}
+
+.legend .merged::before {
+    background: var(--ok);
+}
+
+.chart {
+    display: flex;
+    align-items: flex-end;
+    gap: 3px;
+    height: 11rem;
+    margin: 0;
+    padding: 0 0 1.4rem;
+    list-style: none;
+    border-bottom: 1px solid var(--line);
+}
+
+.chart li {
+    position: relative;
+    display: flex;
+    flex: 1;
+    align-items: flex-end;
+    justify-content: center;
+    gap: 1px;
+    height: 100%;
+    border-radius: 3px;
+}
+
+.chart li:hover {
+    background: color-mix(in srgb, var(--muted) 10%, transparent);
+}
+
+.chart i {
+    width: 45%;
+    min-height: 1px;
+    border-radius: 2px 2px 0 0;
+}
+
+.chart .opened {
+    height: var(--opened);
+    background: var(--pending);
+}
+
+.chart .merged {
+    height: var(--merged);
+    background: var(--ok);
+}
+
+.chart b {
+    position: absolute;
+    bottom: -1.3rem;
+    font-size: .65rem;
+    font-weight: 500;
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
+}
+
+.chart li:nth-child(even) b {
+    visibility: hidden;
+}
+
+.chart li:hover b {
+    visibility: visible;
+    color: var(--ink);
+}
+
+.chart li:hover::after {
+    content: attr(data-opened) " / " attr(data-merged);
+    position: absolute;
+    top: -1.2rem;
+    font-size: .7rem;
+    font-weight: 600;
+    color: var(--ink);
+    white-space: nowrap;
+}
