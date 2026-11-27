@@ -14,7 +14,7 @@ pub(crate) const NEAR: u64 = 90;
 const TABS: [(&str, &str); 3] = [("/", "Tiers"), ("/cache", "Cache"), ("/limits", "Limits")];
 
 const STYLE: &str = "body{font:14px system-ui;margin:1rem}\
-main{position:relative;display:grid;grid-template-columns:repeat(5,1fr);gap:0 1rem;align-items:start}\
+main.board{position:relative;display:grid;grid-template-columns:repeat(5,1fr);gap:0 1rem;align-items:start}\
 .blocks{box-shadow:0 0 0 4px #a605}.blocked{box-shadow:0 0 0 4px #c005}\
 .blocks.blocked{box-shadow:0 0 0 4px #c005,0 0 0 8px #a605}article{position:relative;z-index:1;background:#fff}\
 svg.links{position:absolute;left:0;top:0;pointer-events:none;overflow:visible}\
@@ -23,7 +23,11 @@ article{border:1px solid #888;border-radius:4px;padding:.5rem;margin:.5rem 0}\
 .tag{border:1px solid #888;border-radius:4px;padding:0 .3rem;margin-right:.3rem}\
 .bad{border-color:#c00;color:#c00}li.bad{border:0}.holds{color:#740}\
 form{display:inline}nav a{margin-right:1rem}\
-td,th{text-align:left;padding:0 1rem 0 0}ul{margin:.3rem 0;padding-left:1.2rem}\
+table{border-collapse:collapse;margin-top:.5rem}\
+td,th{text-align:left;padding:.25rem 1.5rem .25rem 0;white-space:nowrap;border-bottom:1px solid #eee}\
+td:nth-child(2){font-family:ui-monospace,monospace}\
+.meter{display:inline-block;width:8rem;height:.6rem;background:#eee;border-radius:3px;margin-right:.5rem}\
+.meter i{display:block;height:100%;background:#888;border-radius:3px}.bad .meter i{background:#c00}ul{margin:.3rem 0;padding-left:1.2rem}\
 .locked{opacity:.4;pointer-events:none}.error{color:#c00}";
 
 pub struct View<'a> {
@@ -174,6 +178,17 @@ fn account(session: &Session) -> El {
     nav.text(format!("{} ", session.login)).kid(out)
 }
 
+/// A bar filled to `share` percent, then the number. Marked at `NEAR`.
+pub(crate) fn meter(share: u64) -> El {
+    let fill = el("i").attr("style", format!("width:{}%", share.min(100)));
+    let bar = el("span").attr("class", "meter").kid(fill);
+    let class = if share >= NEAR { "bad" } else { "" };
+    el("span")
+        .attr("class", class)
+        .kid(bar)
+        .text(format!("{share}%"))
+}
+
 /// A page for a signed-in editor.
 pub(crate) fn frame(config: &Config, session: &Session, main: El) -> String {
     shell(config, [account(session), main])
@@ -214,7 +229,7 @@ pub(crate) fn board(view: &View) -> String {
     titles.push("merge queue");
     lanes.push(queue(view.pulls));
     let layout = layout::lay(&lanes);
-    let mut main = el("main");
+    let mut main = el("main").attr("class", "board");
     for (lane, title) in titles.into_iter().enumerate() {
         let style = format!("grid-column:{};grid-row:1", lane + 1);
         main = main.kid(text("h2", title).attr("style", style));

@@ -2,7 +2,7 @@
 
 use crate::github::{Client, Install};
 use crate::html::{Part, el, table, text};
-use crate::page::{self, NEAR};
+use crate::page;
 use crate::session::Session;
 use crate::{Config, Fault, Host, unzip};
 use serde::Deserialize;
@@ -99,13 +99,11 @@ pub(crate) fn render(config: &Config, session: &Session, limits: &Limits) -> Str
     ));
     let mut rows = Vec::new();
     for m in near {
-        let share = text("span", format!("{}%", m.share()));
-        let share = share.attr("class", if m.share() >= NEAR { "bad" } else { "" });
         let row: Vec<Part> = vec![
             m.rule.as_str().into(),
             m.path.as_str().into(),
-            format!("{} of {}", m.value, m.max).into(),
-            share.into(),
+            format!("{} / {}", m.value, m.max).into(),
+            page::meter(m.share()).into(),
         ];
         rows.push(row);
     }
