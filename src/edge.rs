@@ -1,6 +1,6 @@
 //! The Cloudflare Worker entry point.
 
-use crate::{Call, Config, Fault, Host, Reply, Request, serve};
+use crate::{Call, Config, Fault, Host, Recent, Reply, Request, serve};
 use rsa::PrivateKey;
 use rsa::pkcs1::DecodeRsaPrivateKey;
 use rsa::pkcs1v15::SigningKey;
@@ -12,6 +12,8 @@ use worker::{Context, Env, Fetch, Headers, Method, RequestInit, RequestRedirect,
 fn fault(error: worker::Error) -> Fault {
     Fault::new(502, error.to_string())
 }
+
+static RECENT: Recent = Recent::new();
 
 /// The app key, read once per Worker instance.
 static KEY: OnceLock<SigningKey<Sha256>> = OnceLock::new();
@@ -53,6 +55,10 @@ impl Host for Edge {
         let mut nonce = [0; 16];
         getrandom::fill(&mut nonce).expect("the runtime has a random source");
         nonce
+    }
+
+    fn recent(&self) -> &Recent {
+        &RECENT
     }
 
     fn now(&self) -> u64 {

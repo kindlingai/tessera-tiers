@@ -13,6 +13,7 @@ pub enum Kind {
     Shared,
 }
 
+#[derive(Clone)]
 pub struct Overlap {
     pub kind: Kind,
     pub other: u64,
