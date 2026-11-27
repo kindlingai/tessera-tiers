@@ -37,6 +37,15 @@ const PULLS: &str = r#"{"data":{"repository":{"pullRequests":{
   "label":{"name":"landing"},"actor":{"login":"mmastrac","__typename":"User"}}]},
  "comments":{"nodes":[]}}]}}}}"#;
 
+/// Two PRs opened and one merged in the fake clock's hour, and a release PR.
+const PRS: &str = r#"[
+{"updated_at":"1970-01-01T00:10:00Z","created_at":"1970-01-01T00:01:00Z",
+ "merged_at":"1970-01-01T00:09:00Z","head":{"ref":"fix"}},
+{"updated_at":"1970-01-01T00:05:00Z","created_at":"1970-01-01T00:02:00Z",
+ "merged_at":null,"head":{"ref":"feat"}},
+{"updated_at":"1970-01-01T00:04:00Z","created_at":"1970-01-01T00:03:00Z",
+ "merged_at":null,"head":{"ref":"release-please--branches--main"}}]"#;
+
 /// Usage at the default limit of 10 GiB.
 const USAGE: &str = r#"{"active_caches_size_in_bytes":10737418240,"active_caches_count":3}"#;
 const CACHES: &str = r#"{"actions_caches":[
@@ -110,6 +119,7 @@ fn zip(name: &str, data: &[u8]) -> Vec<u8> {
 struct Fake {
     calls: RefCell<Vec<String>>,
     recent: Recent,
+    store: RefCell<std::collections::BTreeMap<String, String>>,
 }
 
 impl Host for Fake {
@@ -134,6 +144,7 @@ impl Host for Fake {
             ("POST", "/login/oauth/access_token") => r#"{"access_token":"user"}"#,
             ("GET", "/user") => r#"{"login":"Matt","id":7}"#,
             ("GET", "/repos/o/r/actions/cache/usage") => USAGE,
+            ("GET", path) if path.contains("/pulls?state=all") && path.ends_with("page=1") => PRS,
             ("GET", "/repos/o/r/actions/caches?per_page=100&page=1") => CACHES,
             ("GET", path) if path.contains("/runs?branch=main&event=push") => RUNS,
             ("GET", "/repos/o/r/actions/runs/2/artifacts?name=checks-lint") => {
@@ -172,6 +183,14 @@ impl Host for Fake {
 
     fn recent(&self) -> &Recent {
         &self.recent
+    }
+
+    async fn load(&self, key: &str) -> Option<String> {
+        self.store.borrow().get(key).cloned()
+    }
+
+    async fn store(&self, key: &str, value: String, _: u64) {
+        self.store.borrow_mut().insert(key.into(), value);
     }
 }
 
@@ -347,4 +366,22 @@ fn landing_asks_twice() {
     assert_eq!(land("pr=5&csrf=token&sure=yes&red=yes"), 303);
     let merged = r#"PUT /repos/o/r/pulls/5/merge Bearer app {"merge_method":"squash","sha":"tip"}"#;
     assert!(fake.calls.borrow().iter().any(|c| c == merged));
+}
+
+#[test]
+fn rates_rebuild_hourly() {
+    let fake = Fake::default();
+    let page = ask(&fake, "GET", "/rates", "Matt", "").body;
+    assert!(
+        page.contains(r#"title="1970-01-01 00 UTC: 2 opened, 1 merged""#),
+        "{page}"
+    );
+    fake.calls.borrow_mut().clear();
+    ask(&fake, "GET", "/rates", "Matt", "");
+    let listed = fake
+        .calls
+        .borrow()
+        .iter()
+        .any(|c| c.contains("/pulls?state=all"));
+    assert!(!listed);
 }

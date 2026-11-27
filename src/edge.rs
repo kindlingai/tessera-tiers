@@ -7,6 +7,7 @@ use rsa::pkcs1v15::SigningKey;
 use rsa::signature::{SignatureEncoding, Signer};
 use sha2::Sha256;
 use std::sync::OnceLock;
+use worker::kv::KvStore;
 use worker::{Context, Env, Fetch, Headers, Method, RequestInit, RequestRedirect, event};
 
 fn fault(error: worker::Error) -> Fault {
@@ -20,6 +21,7 @@ static KEY: OnceLock<SigningKey<Sha256>> = OnceLock::new();
 
 struct Edge {
     key: &'static SigningKey<Sha256>,
+    store: KvStore,
 }
 
 fn bad(name: &str, error: impl std::fmt::Display) -> worker::Error {
@@ -61,6 +63,16 @@ impl Host for Edge {
         &RECENT
     }
 
+    async fn load(&self, key: &str) -> Option<String> {
+        self.store.get(key).text().await.ok().flatten()
+    }
+
+    async fn store(&self, key: &str, value: String, life: u64) {
+        if let Ok(put) = self.store.put(key, value) {
+            let _ = put.expiration_ttl(life).execute().await;
+        }
+    }
+
     fn now(&self) -> u64 {
         worker::Date::now().as_millis() / 1000
     }
@@ -93,7 +105,8 @@ async fn fetch(
         let _ = KEY.set(SigningKey::new(key.map_err(|e| bad("APP_KEY", e))?));
     }
     let key = KEY.get().expect("the key was set above");
-    let edge = Edge { key };
+    let store = env.kv("RATES")?;
+    let edge = Edge { key, store };
     let url = req.url()?;
     let header = |name: &str| req.headers().get(name).map(Option::unwrap_or_default);
     let request = Request {

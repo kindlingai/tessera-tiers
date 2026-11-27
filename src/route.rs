@@ -5,7 +5,7 @@ use crate::github::Client;
 use crate::page::{self, View};
 use crate::session::{self, Session};
 use crate::{Config, Fault, Host};
-use crate::{cache, limits};
+use crate::{cache, limits, rates};
 
 const STATE: &str = "__Host-state";
 /// Seconds to finish a sign-in.
@@ -114,6 +114,10 @@ impl<H: Host> Site<'_, H> {
             "/cache" => {
                 let install = client.install().await?;
                 cache::render(config, session, &cache::read(&client, &install).await?)
+            }
+            "/rates" => {
+                let install = client.install().await?;
+                rates::render(config, session, &rates::read(&client, &install).await?)
             }
             "/limits" => {
                 let install = client.install().await?;
@@ -244,7 +248,7 @@ pub async fn serve<H: Host>(host: &H, config: &Config, req: &Request) -> Respons
         session,
     };
     let done = match (req.method.as_str(), req.path.as_str()) {
-        ("GET", path @ ("/" | "/cache" | "/limits")) => site.tab(path).await,
+        ("GET", path @ ("/" | "/cache" | "/limits" | "/rates")) => site.tab(path).await,
         ("GET", "/app.js") => Ok(Response::new(200, "text/javascript", SCRIPT.into())),
         ("GET", "/app.css") => Ok(Response::new(200, "text/css", STYLE.into())),
         ("GET", "/login") => Ok(site.login()),

@@ -11,7 +11,7 @@ use serde_json::{Value, json};
 const AGENT: &str = "tessera-tiers";
 const WAITS: &str = "needs-human-review";
 /// The branch prefix of release-please pull requests.
-const RELEASE: &str = "release-please--";
+pub(crate) const RELEASE: &str = "release-please--";
 /// Seconds an app token lasts. GitHub allows 600.
 const JWT_LIFE: u64 = 540;
 
