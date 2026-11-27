@@ -10,6 +10,8 @@ use serde_json::{Value, json};
 
 const AGENT: &str = "tessera-tiers";
 const WAITS: &str = "needs-human-review";
+/// The branch prefix of release-please pull requests.
+const RELEASE: &str = "release-please--";
 /// Seconds an app token lasts. GitHub allows 600.
 const JWT_LIFE: u64 = 540;
 
@@ -18,7 +20,7 @@ pub(crate) const QUERY: &str = "query($owner:String!,$name:String!,$after:String
 repository(owner:$owner,name:$name){\
 pullRequests(states:OPEN,first:50,after:$after){\
 pageInfo{hasNextPage endCursor}\
-nodes{number title isDraft mergeable autoMergeRequest{enabledAt} mergeQueueEntry{position} author{login __typename}\
+nodes{number title headRefName isDraft mergeable autoMergeRequest{enabledAt} mergeQueueEntry{position} author{login __typename}\
 labels(first:100){nodes{name}}\
 commits(last:1){nodes{commit{statusCheckRollup{state}}}}\
 timelineItems(itemTypes:[LABELED_EVENT],last:100){nodes{\
@@ -89,6 +91,8 @@ struct Comment {
 struct Node {
     number: u64,
     title: String,
+    #[serde(default)]
+    head_ref_name: String,
     is_draft: bool,
     mergeable: String,
     auto_merge_request: Option<Value>,
@@ -122,13 +126,17 @@ pub(crate) fn preview(pages: Vec<Value>, slug: &str) -> Vec<Pull> {
         let page = reply["data"]["repository"]["pullRequests"].take();
         let page: Page = serde_json::from_value(page).expect("a pull request page");
         for node in page.nodes {
-            pulls.push(pull(node, slug));
+            pulls.extend(pull(node, slug));
         }
     }
     pulls
 }
 
-fn pull(node: Node, slug: &str) -> Pull {
+/// A pull request for the board. Release PRs are left out.
+fn pull(node: Node, slug: &str) -> Option<Pull> {
+    if node.head_ref_name.starts_with(RELEASE) {
+        return None;
+    }
     let has = |name: &str| node.labels.nodes.iter().any(|l| l.name == name);
     let mut tier = Tier::Untagged;
     for t in [Tier::Landing, Tier::Priority] {
@@ -171,7 +179,7 @@ fn pull(node: Node, slug: &str) -> Pull {
             pull.overlaps = overlap::read(&comment.body);
         }
     }
-    pull
+    Some(pull)
 }
 
 /// The app's access to the repository.
@@ -343,7 +351,7 @@ impl<H: Host> Client<'_, H> {
                 Fault::new(502, format!("The GitHub reply lacks pull requests: {e}"))
             })?;
             for node in page.nodes {
-                pulls.push(pull(node, &install.slug));
+                pulls.extend(pull(node, &install.slug));
             }
             if !page.page_info.has_next_page {
                 return Ok(pulls);
