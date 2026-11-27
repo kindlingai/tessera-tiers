@@ -30,7 +30,7 @@ const PULLS: &str = r#"{"data":{"repository":{"pullRequests":{
 {"number":5,"title":"chore(main): release 1.0.0","headRefName":"release-please--branches--main",
  "isDraft":false,"mergeable":"MERGEABLE","author":null,"labels":{"nodes":[]},
  "commits":{"nodes":[]},"timelineItems":{"nodes":[]},"comments":{"nodes":[]}},
-{"number":4,"title":"agent","isDraft":false,"mergeable":"CONFLICTING","author":null,
+{"number":4,"title":"agent","baseRefName":"main","isDraft":false,"mergeable":"CONFLICTING","author":null,
  "mergeQueueEntry":{"position":2},
  "labels":{"nodes":[{"name":"landing"}]},"commits":{"nodes":[]},
  "timelineItems":{"nodes":[{"createdAt":"2026-11-03T00:00:00Z",
@@ -301,6 +301,9 @@ fn board_escapes_text() {
     assert!(!queued.split("</article>").next().unwrap().contains("<form"));
     assert!(!page.contains("release 1.0.0"));
     assert!(page.contains(r#"src="/app.js""#));
+    let queue = r#"<a href="https://web.test/o/r/queue/main">"#;
+    assert!(page.contains(&format!("{queue}merge queue #2</a>")));
+    assert!(page.contains(&format!("{queue}merge queue</a></h2>")));
     assert!(page.find(r#"id="pr-3""#).unwrap() < page.find(r#"id="pr-2""#).unwrap());
 }
 

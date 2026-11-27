@@ -20,7 +20,7 @@ pub(crate) const QUERY: &str = "query($owner:String!,$name:String!,$after:String
 repository(owner:$owner,name:$name){\
 pullRequests(states:OPEN,first:50,after:$after){\
 pageInfo{hasNextPage endCursor}\
-nodes{number title headRefName isDraft mergeable autoMergeRequest{enabledAt} mergeQueueEntry{position} author{login __typename}\
+nodes{number title headRefName baseRefName isDraft mergeable autoMergeRequest{enabledAt} mergeQueueEntry{position} author{login __typename}\
 labels(first:100){nodes{name}}\
 commits(last:1){nodes{commit{statusCheckRollup{state}}}}\
 timelineItems(itemTypes:[LABELED_EVENT],last:100){nodes{\
@@ -93,6 +93,8 @@ struct Node {
     title: String,
     #[serde(default)]
     head_ref_name: String,
+    #[serde(default)]
+    base_ref_name: String,
     is_draft: bool,
     mergeable: String,
     auto_merge_request: Option<Value>,
@@ -147,6 +149,7 @@ fn pull(node: Node, slug: &str) -> Option<Pull> {
     let mut pull = Pull {
         number: node.number,
         title: node.title,
+        base: node.base_ref_name,
         author: node.author.map(|a| a.login).unwrap_or_default(),
         draft: node.is_draft,
         waits: has(WAITS),

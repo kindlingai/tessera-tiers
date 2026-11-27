@@ -209,6 +209,16 @@ article .author {
 .tags .merging,
 .tags .queued { --tone: var(--ok); }
 
+.tags a,
+main.board h2 a {
+    text-decoration: none;
+}
+
+.tags a:hover,
+main.board h2 a:hover {
+    text-decoration: underline;
+}
+
 /* Overlaps */
 
 .overlaps {
