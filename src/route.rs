@@ -166,16 +166,25 @@ impl<H: Host> Site<'_, H> {
         Ok(session)
     }
 
-    async fn retier(&self) -> Result<Response, Fault> {
+    /// A card button: a tier change, auto-merge or the review release.
+    async fn act(&self) -> Result<Response, Fault> {
         let form = form(&self.req.body);
         self.editor(self.guard(&form)?)?;
-        let number = field(&form, "pr").parse();
-        let (Ok(number), Some(tier)) = (number, Tier::named(field(&form, "tier"))) else {
-            return Err(Fault::new(400, "Unknown pull request or tier."));
+        let Ok(number) = field(&form, "pr").parse() else {
+            return Err(Fault::new(400, "Unknown pull request."));
         };
         let client = self.client();
         let install = client.install().await?;
-        client.retier(&install, number, tier).await?;
+        match self.req.path.as_str() {
+            "/automerge" => client.automerge(&install, number).await?,
+            "/review" => client.release(&install, number).await?,
+            _ => {
+                let Some(tier) = Tier::named(field(&form, "tier")) else {
+                    return Err(Fault::new(400, "Unknown tier."));
+                };
+                client.retier(&install, number, tier).await?
+            }
+        }
         Ok(Response::redirect("/".into()))
     }
 
@@ -206,7 +215,7 @@ pub async fn serve<H: Host>(host: &H, config: &Config, req: &Request) -> Respons
         // GitHub sends the browser here after the app is installed.
         ("GET", "/setup") => Ok(Response::redirect("/".into())),
         ("GET", "/auth") => site.auth().await,
-        ("POST", "/tier") => site.retier().await,
+        ("POST", "/tier" | "/automerge" | "/review") => site.act().await,
         ("POST", "/logout") => site.logout(),
         _ => Err(Fault::new(404, "Not found.")),
     };

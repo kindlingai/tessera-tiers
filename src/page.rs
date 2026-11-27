@@ -51,6 +51,9 @@ fn tags(pull: &Pull) -> El {
     if pull.waits {
         tags = tags.kid(tag("waits on a human", false));
     }
+    if pull.merging {
+        tags = tags.kid(tag("auto-merge on", false));
+    }
     if !pull.trusted {
         let note = format!("label set by {}, CI ignores it", pull.setter);
         tags = tags.kid(tag(note, true));
@@ -101,6 +104,13 @@ fn controls(pull: &Pull, session: &Session) -> El {
         };
         let button = text("button", format!("{verb} {}", tier.name()));
         form = form.kid(button.attr("name", "tier").attr("value", tier.name()));
+    }
+    if !pull.merging && !pull.draft {
+        form = form.kid(text("button", "enable auto-merge").attr("formaction", "/automerge"));
+    }
+    if pull.waits {
+        let button = text("button", "remove needs-human-review");
+        form = form.kid(button.attr("formaction", "/review"));
     }
     form
 }

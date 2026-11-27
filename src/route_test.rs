@@ -21,6 +21,7 @@ const PULLS: &str = r#"{"data":{"repository":{"pullRequests":{
  "comments":{"nodes":[{"author":{"login":"github-actions","__typename":"Bot"},
   "body":"<!-- conflict-notice -->\n### Overlap with other open pull requests\nA conflict line names files that conflict with that PR.\nThe PR that merges second must rebase. A shared line names\nfiles both PRs change that merge cleanly. This notice fails no check.\n\n- conflict #3: `a/<b>.rs`\n- shared #4: `c.rs` `d.rs`\n"}]}},
 {"number":3,"title":"first","isDraft":false,"mergeable":"MERGEABLE","author":null,
+ "autoMergeRequest":{"enabledAt":"2026-11-27T00:00:00Z"},
  "labels":{"nodes":[{"name":"priority"}]},"commits":{"nodes":[]},
  "timelineItems":{"nodes":[{"createdAt":"2026-11-01T00:00:00Z",
   "label":{"name":"priority"},"actor":{"login":"tiers","__typename":"Bot"}}]},
@@ -226,6 +227,14 @@ fn editor_moves_tier() {
         calls[3..],
         [added, format!("DELETE {labels}/landing Bearer app ")]
     );
+    drop(calls);
+    fake.calls.borrow_mut().clear();
+    assert_eq!(ask(&fake, "POST", "/automerge", "Matt", form).status, 303);
+    assert_eq!(ask(&fake, "POST", "/review", "Matt", form).status, 303);
+    let calls = fake.calls.borrow();
+    assert!(calls[3].starts_with("POST /graphql Bearer app ") && calls[3].contains("SQUASH"));
+    let released = format!("DELETE {labels}/needs-human-review Bearer app ");
+    assert_eq!(calls.last(), Some(&released));
 }
 
 #[test]
@@ -252,6 +261,12 @@ fn board_escapes_text() {
     assert!(page.contains("shares files with #4: c.rs, d.rs"));
     assert!(page.contains("label set by mmastrac") && !page.contains("forged.rs"));
     assert!(page.contains("no overlaps") && page.contains("overlaps not checked"));
+    let actions = [
+        r#"formaction="/review""#,
+        r#"formaction="/automerge""#,
+        "auto-merge on",
+    ];
+    assert!(actions.iter().all(|a| page.contains(a)));
     assert!(page.find("#3 first").unwrap() < page.find("#2 ").unwrap());
 }
 
