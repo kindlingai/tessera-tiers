@@ -33,10 +33,16 @@ impl Tier {
 
 #[derive(Clone)]
 pub struct Pull {
+    /// The GraphQL node id.
+    pub id: String,
     pub number: u64,
+    /// The head commit.
+    pub head: String,
     pub title: String,
     /// The branch it merges into.
     pub base: String,
+    /// The base branch has a merge queue.
+    pub queueable: bool,
     pub author: String,
     pub draft: bool,
     /// Has the `needs-human-review` label.

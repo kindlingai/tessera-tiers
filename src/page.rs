@@ -2,6 +2,7 @@
 
 use crate::Config;
 use crate::board::{Pull, Tier, column, drafts, queue};
+use crate::bot::{self, Step};
 use crate::html::{El, el, text};
 use crate::layout::{self, Layout, Spot};
 use crate::overlap::Kind;
@@ -22,6 +23,8 @@ pub struct View<'a> {
     pub config: &'a Config,
     pub session: &'a Session,
     pub pulls: &'a [Pull],
+    /// The queue bot's failures in its last run, one per line.
+    pub faults: &'a str,
 }
 
 /// A boolean data attribute, present when `on`.
@@ -128,7 +131,7 @@ fn controls(pull: &Pull, session: &Session) -> El {
 
 /// One flight strip. Its state goes into data attributes, and the style
 /// sheet draws it.
-fn card(view: &View, pull: &Pull, layout: &Layout, lane: &str) -> El {
+fn card(view: &View, pull: &Pull, layout: &Layout, lane: &str, steps: &[Step]) -> El {
     let Config { web, repo, .. } = view.config;
     let link = el("a")
         .attr("href", format!("{web}/{repo}/pull/{}", pull.number))
@@ -161,6 +164,11 @@ fn card(view: &View, pull: &Pull, layout: &Layout, lane: &str) -> El {
     }
     if let Some(position) = pull.queued {
         card = card.attr("data-queued", position.to_string());
+    }
+    for step in steps {
+        if step.pull.number == pull.number {
+            card = card.attr("data-bot", step.act.name());
+        }
     }
     card = card
         .kid(el("header").kid(link).kid(author))
@@ -229,9 +237,32 @@ pub(crate) fn welcome(config: &Config) -> String {
     shell(config, [el("p").kid(link), el("main")])
 }
 
-/// Grid lines for a cell. Row 1 holds the lane titles.
+/// What the queue bot does next, or would do, and its last failures.
+fn plan(view: &View, steps: &[Step]) -> El {
+    let title = match view.config.act {
+        true => "Queue bot",
+        false => "Queue bot plan, not applied",
+    };
+    let section = el("section").attr("class", "bot").kid(text("h3", title));
+    let section = flag(section, "data-act", view.config.act);
+    let mut list = el("ul");
+    for step in steps {
+        list = list.kid(text("li", step.describe()).attr("data-bot", step.act.name()));
+    }
+    if steps.is_empty() {
+        list = list.kid(text("li", "The queue matches the tiers."));
+    }
+    let mut faults = el("ul").attr("class", "faults");
+    for line in view.faults.lines() {
+        faults = faults.kid(text("li", line));
+    }
+    section.kid(list).kid(faults)
+}
+
+/// Grid lines for a cell. Row 1 holds the bot's plan and row 2 the lane
+/// titles.
 fn area(spot: Spot) -> String {
-    let (lane, row) = (spot.lane + 1, spot.row + 2);
+    let (lane, row) = (spot.lane + 1, spot.row + 3);
     format!("grid-column:{lane}/{};grid-row:{row}/{}", lane + 1, row + 1)
 }
 
@@ -246,11 +277,12 @@ pub(crate) fn board(view: &View) -> String {
     titles.push("merge queue");
     lanes.push(queue(view.pulls));
     let layout = layout::lay(&lanes);
-    let mut main = el("main").attr("class", "board");
+    let steps = bot::plan(view.pulls);
+    let mut main = el("main").attr("class", "board").kid(plan(view, &steps));
     let front = lanes.last().and_then(|q| q.first());
     let front = front.map(|pull| queue_page(view.config, &pull.base));
     for (lane, &title) in titles.iter().enumerate() {
-        let style = format!("grid-column:{};grid-row:1", lane + 1);
+        let style = format!("grid-column:{};grid-row:2", lane + 1);
         let head = el("h2").attr("data-lane", title).attr("style", style);
         // The queue title opens GitHub's queue page while the queue has PRs.
         let head = match front.as_ref().filter(|_| lane + 1 == titles.len()) {
@@ -260,7 +292,7 @@ pub(crate) fn board(view: &View) -> String {
         main = main.kid(head);
     }
     for &(pull, spot) in &layout.cards {
-        let card = card(view, pull, &layout, titles[spot.lane]);
+        let card = card(view, pull, &layout, titles[spot.lane], &steps);
         main = main.kid(card.attr("style", area(spot)));
     }
     frame(view.config, view.session, main)

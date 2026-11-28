@@ -1,7 +1,7 @@
 //! The routes against a fake GitHub.
 
 use crate::session::{self, Session};
-use crate::{Call, Config, Fault, Host, Recent, Reply, Request, Response, serve};
+use crate::{Call, Config, Fault, Host, Recent, Reply, Request, Response, serve, tick};
 use std::cell::RefCell;
 use std::pin::pin;
 use std::task::{Context, Poll, Waker};
@@ -36,6 +36,38 @@ const PULLS: &str = r#"{"data":{"repository":{"pullRequests":{
  "timelineItems":{"nodes":[{"createdAt":"2026-11-03T00:00:00Z",
   "label":{"name":"landing"},"actor":{"login":"mmastrac","__typename":"User"}}]},
  "comments":{"nodes":[]}}]}}}}"#;
+
+/// Priority #10 passes its checks and conflicts with queued #11 and with
+/// landing #13. Landing #12 passes and conflicts with nothing.
+const QUEUE: &str = r#"{"data":{"repository":{"pullRequests":{
+"pageInfo":{"hasNextPage":false,"endCursor":null},"nodes":[
+{"id":"P10","number":10,"title":"hot","headRefOid":"h10","baseRefName":"main","isDraft":false,
+ "isMergeQueueEnabled":true,"mergeable":"MERGEABLE","author":null,
+ "labels":{"nodes":[{"name":"priority"}]},
+ "commits":{"nodes":[{"commit":{"statusCheckRollup":{"state":"SUCCESS"}}}]},
+ "timelineItems":{"nodes":[{"createdAt":"2026-11-02T00:00:00Z",
+  "label":{"name":"priority"},"actor":{"login":"tiers","__typename":"Bot"}}]},
+ "comments":{"nodes":[{"author":{"login":"github-actions","__typename":"Bot"},
+  "body":"<!-- conflict-notice -->\n- conflict #11: `a.rs`"}]}},
+{"id":"P11","number":11,"title":"queued","headRefOid":"h11","baseRefName":"main","isDraft":false,
+ "isMergeQueueEnabled":true,"mergeable":"MERGEABLE","author":null,
+ "autoMergeRequest":{"enabledAt":"2026-11-27T00:00:00Z"},"mergeQueueEntry":{"position":1},
+ "labels":{"nodes":[]},"commits":{"nodes":[]},"timelineItems":{"nodes":[]},"comments":{"nodes":[]}},
+{"id":"P12","number":12,"title":"free","headRefOid":"h12","baseRefName":"main","isDraft":false,
+ "isMergeQueueEnabled":true,"mergeable":"MERGEABLE","author":null,
+ "labels":{"nodes":[{"name":"landing"}]},
+ "commits":{"nodes":[{"commit":{"statusCheckRollup":{"state":"SUCCESS"}}}]},
+ "timelineItems":{"nodes":[{"createdAt":"2026-11-03T00:00:00Z",
+  "label":{"name":"landing"},"actor":{"login":"tiers","__typename":"Bot"}}]},
+ "comments":{"nodes":[]}},
+{"id":"P13","number":13,"title":"held","headRefOid":"h13","baseRefName":"main","isDraft":false,
+ "isMergeQueueEnabled":true,"mergeable":"MERGEABLE","author":null,
+ "labels":{"nodes":[{"name":"landing"}]},
+ "commits":{"nodes":[{"commit":{"statusCheckRollup":{"state":"SUCCESS"}}}]},
+ "timelineItems":{"nodes":[{"createdAt":"2026-11-01T00:00:00Z",
+  "label":{"name":"landing"},"actor":{"login":"tiers","__typename":"Bot"}}]},
+ "comments":{"nodes":[{"author":{"login":"github-actions","__typename":"Bot"},
+  "body":"<!-- conflict-notice -->\n- conflict #10: `b.rs`"}]}}]}}}}"#;
 
 /// Two PRs opened and one merged in the fake clock's hour, and a release PR.
 const PRS: &str = r#"[
@@ -118,6 +150,8 @@ fn zip(name: &str, data: &[u8]) -> Vec<u8> {
 #[derive(Default)]
 struct Fake {
     calls: RefCell<Vec<String>>,
+    /// The open pull requests GraphQL answers with, `PULLS` when empty.
+    pulls: &'static str,
     recent: Recent,
     store: RefCell<std::collections::BTreeMap<String, String>>,
 }
@@ -137,7 +171,8 @@ impl Host for Fake {
                 r#"{"data":{"repository":{"pullRequest":{"commits":{"nodes":[
                 {"commit":{"statusCheckRollup":{"state":"PENDING"}}}]}}}}}"#
             }
-            ("POST", "/graphql") => PULLS,
+            ("POST", "/graphql") if self.pulls.is_empty() => PULLS,
+            ("POST", "/graphql") => self.pulls,
             ("GET", "/repos/o/r/pulls/5") => {
                 r#"{"state":"open","head":{"sha":"tip"},"labels":[{"name":"landing"}]}"#
             }
@@ -204,8 +239,8 @@ fn wait<F: Future>(future: F) -> F::Output {
     }
 }
 
-fn send(fake: &Fake, request: &Request) -> Response {
-    let config = Config {
+fn config() -> Config {
+    Config {
         repo: "o/r".into(),
         client_id: "id".into(),
         client_secret: "secret".into(),
@@ -214,8 +249,12 @@ fn send(fake: &Fake, request: &Request) -> Response {
         origin: HERE.into(),
         api: "https://api.test".into(),
         web: "https://web.test".into(),
-    };
-    wait(serve(fake, &config, request))
+        act: false,
+    }
+}
+
+fn send(fake: &Fake, request: &Request) -> Response {
+    wait(serve(fake, &config(), request))
 }
 
 /// A request with a session for `login`.
@@ -310,10 +349,10 @@ fn board_escapes_text() {
     assert!(actions.iter().all(|a| page.contains(a)));
     // Draft #2 is in the left lane and conflicts with #3, which is ahead.
     let spots = [
-        r#"data-queued="2" style="grid-column:5/6;grid-row:2/3">"#,
-        r#"data-merging="" data-blocks="" style="grid-column:4/5;grid-row:2/3">"#,
+        r#"data-queued="2" style="grid-column:5/6;grid-row:3/4">"#,
+        r#"data-merging="" data-blocks="" style="grid-column:4/5;grid-row:3/4">"#,
         r#"<article id="pr-2" data-lane="draft" data-ci="failure" data-shares="4" data-conflicts="3""#,
-        r#"data-draft="" data-waits="" data-blocked="" style="grid-column:1/2;grid-row:3/4">"#,
+        r#"data-draft="" data-waits="" data-blocked="" style="grid-column:1/2;grid-row:4/5">"#,
     ];
     assert!(spots.iter().all(|s| page.contains(s)), "{page}");
     let queued = page.split(r#"id="pr-4""#).nth(1).unwrap();
@@ -384,4 +423,52 @@ fn rates_rebuild_hourly() {
         .iter()
         .any(|c| c.contains("/pulls?state=all"));
     assert!(!listed);
+}
+
+#[test]
+fn bot_moves_queue() {
+    let fake = Fake {
+        pulls: QUEUE,
+        ..Fake::default()
+    };
+    let page = ask(&fake, "GET", "/", "Matt", "").body;
+    assert!(page.contains("Queue bot plan, not applied") && page.contains(r#"data-bot="dequeue""#));
+    wait(tick(&fake, &config())).unwrap();
+    let changes = |fake: &Fake| {
+        fake.calls
+            .borrow()
+            .iter()
+            .filter(|c| c.contains("mutation") || c.contains("/comments"))
+            .count()
+    };
+    assert_eq!(changes(&fake), 0);
+    wait(tick(
+        &fake,
+        &Config {
+            act: true,
+            ..config()
+        },
+    ))
+    .unwrap();
+    let mut sent = Vec::new();
+    for call in fake.calls.borrow().iter() {
+        let Some((_, body)) = call.split_once("Bearer app ") else {
+            continue;
+        };
+        let body: serde_json::Value = serde_json::from_str(body).unwrap_or_default();
+        if let Some(query) = body["query"].as_str().filter(|q| q.starts_with("mutation")) {
+            let name = query.split(['{', '(']).nth(2).unwrap();
+            sent.push(format!("{name} {}", body["variables"]));
+        } else if call.contains("/comments") {
+            sent.push(call.split(' ').take(2).collect::<Vec<_>>().join(" "));
+        }
+    }
+    let expected = [
+        r#"disablePullRequestAutoMerge {"id":"P11"}"#,
+        r#"dequeuePullRequest {"id":"P11"}"#,
+        "POST /repos/o/r/issues/11/comments",
+        r#"enqueuePullRequest {"head":"h10","id":"P10","jump":true}"#,
+        r#"enqueuePullRequest {"head":"h12","id":"P12","jump":false}"#,
+    ];
+    assert_eq!(sent, expected);
 }

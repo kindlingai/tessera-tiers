@@ -5,7 +5,7 @@ use crate::github::Client;
 use crate::page::{self, View};
 use crate::session::{self, Session};
 use crate::{Config, Fault, Host};
-use crate::{cache, limits, rates};
+use crate::{bot, cache, limits, rates};
 
 const STATE: &str = "__Host-state";
 /// Seconds to finish a sign-in.
@@ -129,6 +129,7 @@ impl<H: Host> Site<'_, H> {
                     config,
                     session,
                     pulls: &pulls,
+                    faults: &bot::faults(self.host).await,
                 })
             }
         };

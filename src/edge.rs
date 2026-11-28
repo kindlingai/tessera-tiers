@@ -1,6 +1,6 @@
 //! The Cloudflare Worker entry point.
 
-use crate::{Call, Config, Fault, Host, Recent, Reply, Request, serve};
+use crate::{Call, Config, Fault, Host, Recent, Reply, Request, bot, serve};
 use rsa::PrivateKey;
 use rsa::pkcs1::DecodeRsaPrivateKey;
 use rsa::pkcs1v15::SigningKey;
@@ -8,7 +8,10 @@ use rsa::signature::{SignatureEncoding, Signer};
 use sha2::Sha256;
 use std::sync::OnceLock;
 use worker::kv::KvStore;
-use worker::{Context, Env, Fetch, Headers, Method, RequestInit, RequestRedirect, event};
+use worker::{
+    Context, Env, Fetch, Headers, Method, RequestInit, RequestRedirect, ScheduleContext,
+    ScheduledEvent, event,
+};
 
 fn fault(error: worker::Error) -> Fault {
     Fault::new(502, error.to_string())
@@ -78,12 +81,8 @@ impl Host for Edge {
     }
 }
 
-#[event(fetch)]
-async fn fetch(
-    mut req: worker::Request,
-    env: Env,
-    _ctx: Context,
-) -> worker::Result<worker::Response> {
+/// The config and the host, from the Worker's variables and secrets.
+fn setup(env: &Env) -> worker::Result<(Config, Edge)> {
     // A pasted secret often brings a stray space or newline.
     let secret = |name: &str| env.secret(name).map(|s| s.to_string().trim().to_string());
     let mut editors = Vec::new();
@@ -97,6 +96,7 @@ async fn fetch(
         session_key: secret("SESSION_KEY")?.into_bytes(),
         editors,
         origin: env.var("ORIGIN")?.to_string(),
+        act: env.var("QUEUE_BOT")?.to_string() == "act",
         api: "https://api.github.com".into(),
         web: "https://github.com".into(),
     };
@@ -105,8 +105,28 @@ async fn fetch(
         let _ = KEY.set(SigningKey::new(key.map_err(|e| bad("APP_KEY", e))?));
     }
     let key = KEY.get().expect("the key was set above");
-    let store = env.kv("RATES")?;
-    let edge = Edge { key, store };
+    let store = env.kv("STORE")?;
+    Ok((config, Edge { key, store }))
+}
+
+#[event(scheduled)]
+async fn scheduled(_event: ScheduledEvent, env: Env, _ctx: ScheduleContext) {
+    let done = match setup(&env) {
+        Ok((config, edge)) => bot::tick(&edge, &config).await,
+        Err(error) => Err(fault(error)),
+    };
+    if let Err(fault) = done {
+        worker::console_error!("queue bot: {}", fault.text);
+    }
+}
+
+#[event(fetch)]
+async fn fetch(
+    mut req: worker::Request,
+    env: Env,
+    _ctx: Context,
+) -> worker::Result<worker::Response> {
+    let (config, edge) = setup(&env)?;
     let url = req.url()?;
     let header = |name: &str| req.headers().get(name).map(Option::unwrap_or_default);
     let request = Request {

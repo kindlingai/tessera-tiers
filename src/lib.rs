@@ -1,6 +1,7 @@
 //! A board that sets pull request tiers as an app.
 
 mod board;
+mod bot;
 mod cache;
 #[cfg(target_arch = "wasm32")]
 mod edge;
@@ -18,6 +19,7 @@ mod unzip;
 #[cfg(test)]
 mod route_test;
 
+pub use bot::tick;
 pub use route::{Request, Response, serve};
 
 /// Draws the board from live data on a developer machine.
@@ -40,6 +42,7 @@ pub mod preview {
             origin: String::new(),
             api: String::new(),
             web: "https://github.com".into(),
+            act: false,
         };
         let session = Session {
             login: "preview".into(),
@@ -52,6 +55,7 @@ pub mod preview {
             config: &config,
             session: &session,
             pulls: &pulls,
+            faults: "",
         })
     }
 }
@@ -126,6 +130,8 @@ pub struct Config {
     pub origin: String,
     pub api: String,
     pub web: String,
+    /// The bot changes the merge queue. Otherwise the board shows its plan.
+    pub act: bool,
 }
 
 /// An outbound HTTP request.
