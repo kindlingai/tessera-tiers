@@ -158,8 +158,17 @@ section.bot {
     font-size: .85rem;
 }
 
-section.bot[data-act] {
+section.bot[data-mode="act"] {
     border-style: solid;
+}
+
+section.bot[data-mode="hold"] {
+    border: 2px solid var(--bad);
+}
+
+section.bot form {
+    display: inline;
+    margin-left: .6rem;
 }
 
 section.bot h3 {

@@ -70,9 +70,12 @@ impl Host for Edge {
         self.store.get(key).text().await.ok().flatten()
     }
 
-    async fn store(&self, key: &str, value: String, life: u64) {
-        if let Ok(put) = self.store.put(key, value) {
-            let _ = put.expiration_ttl(life).execute().await;
+    async fn store(&self, key: &str, value: String, life: Option<u64>) {
+        if let Ok(mut put) = self.store.put(key, value) {
+            if let Some(life) = life {
+                put = put.expiration_ttl(life);
+            }
+            let _ = put.execute().await;
         }
     }
 
@@ -96,7 +99,6 @@ fn setup(env: &Env) -> worker::Result<(Config, Edge)> {
         session_key: secret("SESSION_KEY")?.into_bytes(),
         editors,
         origin: env.var("ORIGIN")?.to_string(),
-        act: env.var("QUEUE_BOT")?.to_string() == "act",
         api: "https://api.github.com".into(),
         web: "https://github.com".into(),
     };

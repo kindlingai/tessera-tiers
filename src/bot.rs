@@ -2,7 +2,8 @@
 //! to the front of the queue once its checks pass, and each PR that
 //! conflicts with it stays out of the queue until it merges. Of two priority
 //! PRs that conflict, the first labelled holds the other out. Trusted landing
-//! PRs join the queue once their checks pass.
+//! PRs join the queue once their checks pass. On hold, the queue stays
+//! empty and auto-merge stays off, so an editor lands PRs by hand.
 
 use crate::board::{Pull, Tier, column, queue};
 use crate::github::{Client, Install};
@@ -16,17 +17,57 @@ const LEASE: u64 = 50;
 /// The shortest life the shared store keeps a value for.
 const STORE_MIN: u64 = 60;
 const FAULTS_KEY: &str = "bot-faults";
+const MODE_KEY: &str = "bot-mode";
 /// Seconds the board shows the failures of the last run.
 const FAULTS_LIFE: u64 = 3600;
+
+/// What the bot does each run. An editor sets it on the board.
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+pub enum Mode {
+    /// The board shows the plan, and the bot changes nothing.
+    Plan,
+    /// The bot applies the plan.
+    Act,
+    /// The bot keeps every PR out of the queue.
+    Hold,
+}
+
+impl Mode {
+    pub const ALL: [Mode; 3] = [Mode::Plan, Mode::Act, Mode::Hold];
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Mode::Plan => "plan",
+            Mode::Act => "act",
+            Mode::Hold => "hold",
+        }
+    }
+
+    pub fn named(name: &str) -> Option<Mode> {
+        Mode::ALL.into_iter().find(|m| m.name() == name)
+    }
+
+    /// The mode in the shared store. Plan when none is set.
+    pub async fn load<H: Host>(host: &H) -> Mode {
+        let name = host.load(MODE_KEY).await.unwrap_or_default();
+        Mode::named(&name).unwrap_or(Mode::Plan)
+    }
+
+    pub async fn store<H: Host>(self, host: &H) {
+        host.store(MODE_KEY, self.name().into(), None).await;
+    }
+}
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum Act {
     /// To the front of the queue. A queued PR leaves the queue first.
     Jump,
     Enqueue,
-    /// Out of the queue, because the priority PR `by` conflicts with it.
+    /// Out of the queue and auto-merge off, because the priority PR `by`
+    /// conflicts with it, or because the queue is on hold when `by` is
+    /// `None`.
     Dequeue {
-        by: u64,
+        by: Option<u64>,
     },
 }
 
@@ -51,11 +92,37 @@ impl Step<'_> {
         match self.act {
             Act::Jump => format!("move #{n} to the front of the merge queue"),
             Act::Enqueue => format!("add #{n} to the merge queue"),
-            Act::Dequeue { by } => {
+            Act::Dequeue { by: Some(by) } => {
                 format!("remove #{n} from the merge queue: priority #{by} conflicts with it")
+            }
+            Act::Dequeue { by: None } if self.pull.queued.is_some() => {
+                format!("remove #{n} from the merge queue: the queue is on hold")
+            }
+            Act::Dequeue { by: None } => {
+                format!("turn off auto-merge on #{n}: the queue is on hold")
             }
         }
     }
+}
+
+/// Every PR that is in the queue or would join it through auto-merge.
+fn hold(pulls: &[Pull]) -> Vec<Step<'_>> {
+    let mut steps = Vec::new();
+    for pull in queue(pulls) {
+        steps.push(Step {
+            pull,
+            act: Act::Dequeue { by: None },
+        });
+    }
+    for pull in pulls {
+        if pull.merging && pull.queued.is_none() {
+            steps.push(Step {
+                pull,
+                act: Act::Dequeue { by: None },
+            });
+        }
+    }
+    steps
 }
 
 fn names_conflict(a: &Pull, b: &Pull) -> bool {
@@ -99,9 +166,12 @@ fn ready(pull: &Pull) -> bool {
     tagged && green && pull.queueable && !pull.draft && !pull.waits && !pull.stuck
 }
 
-/// The changes that bring the queue in step with the tiers, in the order
-/// to make them.
-pub fn plan(pulls: &[Pull]) -> Vec<Step<'_>> {
+/// The changes that bring the queue in step with the tiers and the mode,
+/// in the order to make them.
+pub fn plan(pulls: &[Pull], mode: Mode) -> Vec<Step<'_>> {
+    if mode == Mode::Hold {
+        return hold(pulls);
+    }
     let leads = leads(pulls);
     let mut steps = Vec::new();
     let mut jumps = BTreeSet::new();
@@ -111,7 +181,7 @@ pub fn plan(pulls: &[Pull]) -> Vec<Step<'_>> {
         if let Some(by) = blocker(pull, &leads) {
             steps.push(Step {
                 pull,
-                act: Act::Dequeue { by },
+                act: Act::Dequeue { by: Some(by) },
             });
         } else if !leads.iter().any(|l| l.number == pull.number) {
             other_ahead = true;
@@ -160,10 +230,15 @@ async fn apply<H: Host>(
         Act::Enqueue => client.enqueue(install, pull, false).await,
         Act::Dequeue { by } => {
             client.dequeue(install, pull).await?;
-            let mut body = format!(
-                "The tiers board removed this pull request from the merge queue. \
+            let mut body = match by {
+                Some(by) => format!(
+                    "The tiers board removed this pull request from the merge queue. \
 Priority #{by} conflicts with it and merges first."
-            );
+                ),
+                None => "The tiers board holds the merge queue. \
+An editor lands pull requests by hand until the hold ends."
+                    .to_string(),
+            };
             if pull.merging {
                 body += " Auto-merge is off.";
             }
@@ -172,10 +247,11 @@ Priority #{by} conflicts with it and merges first."
     }
 }
 
-/// One run. It changes the queue only when the config allows it, and only
-/// when no other run holds the lease.
+/// One run. It changes nothing in plan mode, or while another run holds
+/// the lease.
 pub async fn tick<H: Host>(host: &H, config: &Config) -> Result<(), Fault> {
-    if !config.act {
+    let mode = Mode::load(host).await;
+    if mode == Mode::Plan {
         return Ok(());
     }
     let now = host.now();
@@ -187,11 +263,11 @@ pub async fn tick<H: Host>(host: &H, config: &Config) -> Result<(), Fault> {
         return Ok(());
     }
     let until = (now + LEASE).to_string();
-    host.store(LEASE_KEY, until, STORE_MIN).await;
+    host.store(LEASE_KEY, until, Some(STORE_MIN)).await;
     let client = Client { host, config };
     let install = client.install().await?;
     let pulls = client.pulls(&install).await?;
-    let steps = plan(&pulls);
+    let steps = plan(&pulls, mode);
     let mut faults = Vec::new();
     for step in &steps {
         if let Err(fault) = apply(&client, &install, step).await {
@@ -201,8 +277,9 @@ pub async fn tick<H: Host>(host: &H, config: &Config) -> Result<(), Fault> {
     if !steps.is_empty() {
         host.recent().clear();
     }
-    host.store(FAULTS_KEY, faults.join("\n"), FAULTS_LIFE).await;
-    host.store(LEASE_KEY, "0".into(), STORE_MIN).await;
+    host.store(FAULTS_KEY, faults.join("\n"), Some(FAULTS_LIFE))
+        .await;
+    host.store(LEASE_KEY, "0".into(), Some(STORE_MIN)).await;
     Ok(())
 }
 

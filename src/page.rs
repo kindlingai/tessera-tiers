@@ -2,7 +2,7 @@
 
 use crate::Config;
 use crate::board::{Pull, Tier, column, drafts, queue};
-use crate::bot::{self, Step};
+use crate::bot::{self, Mode, Step};
 use crate::html::{El, el, text};
 use crate::layout::{self, Layout, Spot};
 use crate::overlap::Kind;
@@ -25,6 +25,7 @@ pub struct View<'a> {
     pub pulls: &'a [Pull],
     /// The queue bot's failures in its last run, one per line.
     pub faults: &'a str,
+    pub mode: Mode,
 }
 
 /// A boolean data attribute, present when `on`.
@@ -99,7 +100,7 @@ fn overlaps(pull: &Pull, rank: &BTreeMap<u64, usize>) -> El {
 }
 
 /// Buttons that move a pull request to another tier.
-fn controls(pull: &Pull, session: &Session) -> El {
+fn controls(pull: &Pull, session: &Session, mode: Mode) -> El {
     let mut form = el("form")
         .attr("class", "controls")
         .attr("method", "post")
@@ -115,7 +116,8 @@ fn controls(pull: &Pull, session: &Session) -> El {
         let button = text("button", format!("{verb} {}", tier.name()));
         form = form.kid(button.attr("name", "tier").attr("value", tier.name()));
     }
-    if !pull.merging && !pull.draft && pull.queued.is_none() {
+    // On hold the bot turns auto-merge off again.
+    if !pull.merging && !pull.draft && pull.queued.is_none() && mode != Mode::Hold {
         form = form.kid(text("button", "enable auto-merge").attr("formaction", "/automerge"));
     }
     if pull.waits {
@@ -177,7 +179,7 @@ fn card(view: &View, pull: &Pull, layout: &Layout, lane: &str, steps: &[Step]) -
     // GitHub merges a queued PR on its own.
     match pull.queued {
         Some(_) => card,
-        None => card.kid(controls(pull, view.session)),
+        None => card.kid(controls(pull, view.session, view.mode)),
     }
 }
 
@@ -239,12 +241,24 @@ pub(crate) fn welcome(config: &Config) -> String {
 
 /// What the queue bot does next, or would do, and its last failures.
 fn plan(view: &View, steps: &[Step]) -> El {
-    let title = match view.config.act {
-        true => "Queue bot",
-        false => "Queue bot plan, not applied",
+    let title = match view.mode {
+        Mode::Plan => "Queue bot plan, not applied",
+        Mode::Act => "Queue bot",
+        Mode::Hold => "Queue bot holds the merge queue",
     };
-    let section = el("section").attr("class", "bot").kid(text("h3", title));
-    let section = flag(section, "data-act", view.config.act);
+    let mut modes = el("form")
+        .attr("method", "post")
+        .attr("action", "/bot")
+        .kid(hidden("csrf", &view.session.csrf));
+    for mode in Mode::ALL {
+        if mode != view.mode {
+            let button = text("button", mode.name()).attr("name", "mode");
+            modes = modes.kid(button.attr("value", mode.name()));
+        }
+    }
+    let head = el("h3").text(title).kid(modes);
+    let section = el("section").attr("class", "bot").kid(head);
+    let section = section.attr("data-mode", view.mode.name());
     let mut list = el("ul");
     for step in steps {
         list = list.kid(text("li", step.describe()).attr("data-bot", step.act.name()));
@@ -277,7 +291,7 @@ pub(crate) fn board(view: &View) -> String {
     titles.push("merge queue");
     lanes.push(queue(view.pulls));
     let layout = layout::lay(&lanes);
-    let steps = bot::plan(view.pulls);
+    let steps = bot::plan(view.pulls, view.mode);
     let mut main = el("main").attr("class", "board").kid(plan(view, &steps));
     let front = lanes.last().and_then(|q| q.first());
     let front = front.map(|pull| queue_page(view.config, &pull.base));

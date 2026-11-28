@@ -224,7 +224,7 @@ impl Host for Fake {
         self.store.borrow().get(key).cloned()
     }
 
-    async fn store(&self, key: &str, value: String, _: u64) {
+    async fn store(&self, key: &str, value: String, _: Option<u64>) {
         self.store.borrow_mut().insert(key.into(), value);
     }
 }
@@ -249,7 +249,6 @@ fn config() -> Config {
         origin: HERE.into(),
         api: "https://api.test".into(),
         web: "https://web.test".into(),
-        act: false,
     }
 }
 
@@ -434,22 +433,16 @@ fn bot_moves_queue() {
     let page = ask(&fake, "GET", "/", "Matt", "").body;
     assert!(page.contains("Queue bot plan, not applied") && page.contains(r#"data-bot="dequeue""#));
     wait(tick(&fake, &config())).unwrap();
-    let changes = |fake: &Fake| {
-        fake.calls
-            .borrow()
-            .iter()
-            .filter(|c| c.contains("mutation") || c.contains("/comments"))
-            .count()
+    let mode = |name: &str| {
+        ask(
+            &fake,
+            "POST",
+            "/bot",
+            "Matt",
+            &format!("mode={name}&csrf=token"),
+        )
     };
-    assert_eq!(changes(&fake), 0);
-    wait(tick(
-        &fake,
-        &Config {
-            act: true,
-            ..config()
-        },
-    ))
-    .unwrap();
+    assert_eq!(mode("act").status, 303);
     let mut sent = Vec::new();
     for call in fake.calls.borrow().iter() {
         let Some((_, body)) = call.split_once("Bearer app ") else {
@@ -471,4 +464,13 @@ fn bot_moves_queue() {
         r#"enqueuePullRequest {"head":"h12","id":"P12","jump":false}"#,
     ];
     assert_eq!(sent, expected);
+    assert_eq!(mode("hold").status, 303);
+    let last = fake.calls.borrow().last().cloned().unwrap();
+    assert!(last.contains("/issues/11/comments") && last.contains("holds the merge queue"));
+    assert!(
+        ask(&fake, "GET", "/", "Matt", "")
+            .body
+            .contains("Queue bot holds the merge queue")
+    );
+    assert_eq!(mode("pause").status, 400);
 }

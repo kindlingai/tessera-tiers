@@ -42,7 +42,6 @@ pub mod preview {
             origin: String::new(),
             api: String::new(),
             web: "https://github.com".into(),
-            act: false,
         };
         let session = Session {
             login: "preview".into(),
@@ -56,6 +55,7 @@ pub mod preview {
             session: &session,
             pulls: &pulls,
             faults: "",
+            mode: crate::bot::Mode::Plan,
         })
     }
 }
@@ -130,8 +130,6 @@ pub struct Config {
     pub origin: String,
     pub api: String,
     pub web: String,
-    /// The bot changes the merge queue. Otherwise the board shows its plan.
-    pub act: bool,
 }
 
 /// An outbound HTTP request.
@@ -174,7 +172,7 @@ pub trait Host {
     fn recent(&self) -> &Recent;
     /// A value from the store that all Worker instances share.
     fn load(&self, key: &str) -> impl Future<Output = Option<String>>;
-    /// Keeps a value in the shared store for `life` seconds. A failure only
-    /// costs a rebuild.
-    fn store(&self, key: &str, value: String, life: u64) -> impl Future<Output = ()>;
+    /// Keeps a value in the shared store for `life` seconds, or until it is
+    /// replaced when `life` is `None`. A failure only costs a rebuild.
+    fn store(&self, key: &str, value: String, life: Option<u64>) -> impl Future<Output = ()>;
 }

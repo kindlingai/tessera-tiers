@@ -454,14 +454,17 @@ input:{pullRequestId:$id,expectedHeadOid:$head,jump:$jump}){clientMutationId}}";
         self.mutate(install, query, variables).await
     }
 
-    /// Takes the pull request out of the merge queue and turns off the
-    /// auto-merge that would queue it again.
+    /// Takes the pull request out of the merge queue, if it is queued, and
+    /// turns off the auto-merge that would queue it again.
     pub(crate) async fn dequeue(&self, install: &Install, pull: &Pull) -> Result<(), Fault> {
         if pull.merging {
             let query = "mutation($id:ID!){disablePullRequestAutoMerge(\
 input:{pullRequestId:$id}){clientMutationId}}";
             self.mutate(install, query, json!({ "id": pull.id }))
                 .await?;
+        }
+        if pull.queued.is_none() {
+            return Ok(());
         }
         let query = "mutation($id:ID!){dequeuePullRequest(input:{id:$id}){clientMutationId}}";
         self.mutate(install, query, json!({ "id": pull.id })).await

@@ -1,6 +1,7 @@
 //! Maps requests to pages and tier changes.
 
 use crate::board::{Pull, Tier};
+use crate::bot::Mode;
 use crate::github::Client;
 use crate::page::{self, View};
 use crate::session::{self, Session};
@@ -130,6 +131,7 @@ impl<H: Host> Site<'_, H> {
                     session,
                     pulls: &pulls,
                     faults: &bot::faults(self.host).await,
+                    mode: Mode::load(self.host).await,
                 })
             }
         };
@@ -227,6 +229,20 @@ impl<H: Host> Site<'_, H> {
         Ok(Response::redirect("/".into()))
     }
 
+    /// Sets the bot's mode. A mode that acts runs the bot at once.
+    async fn mode(&self) -> Result<Response, Fault> {
+        let form = form(&self.req.body);
+        self.editor(self.guard(&form)?)?;
+        let Some(mode) = Mode::named(field(&form, "mode")) else {
+            return Err(Fault::new(400, "Unknown mode."));
+        };
+        mode.store(self.host).await;
+        if mode != Mode::Plan {
+            bot::tick(self.host, self.config).await?;
+        }
+        Ok(Response::redirect("/".into()))
+    }
+
     fn logout(&self) -> Result<Response, Fault> {
         self.guard(&form(&self.req.body))?;
         let gone = session::bake(session::NAME, "", 0);
@@ -257,6 +273,7 @@ pub async fn serve<H: Host>(host: &H, config: &Config, req: &Request) -> Respons
         ("GET", "/setup") => Ok(Response::redirect("/".into())),
         ("GET", "/auth") => site.auth().await,
         ("POST", "/tier" | "/automerge" | "/review" | "/land") => site.act().await,
+        ("POST", "/bot") => site.mode().await,
         ("POST", "/logout") => site.logout(),
         _ => Err(Fault::new(404, "Not found.")),
     };
