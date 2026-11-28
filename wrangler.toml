@@ -13,8 +13,14 @@ command = "cargo install -q --locked worker-build@0.9.0 && worker-build --releas
 [vars]
 REPO = "kindlingai/tessera"
 ORIGIN = "https://tessera-tiers.kindlingai.dev"
+# "act" lets the queue bot change the merge queue. Any other value shows
+# its plan on the board only.
+QUEUE_BOT = "plan"
 
-# Hourly PR rate snapshots for the Rates tab.
+[triggers]
+crons = ["* * * * *"]
+
+# Hourly PR rate snapshots, and the queue bot's lease and failures.
 [[kv_namespaces]]
-binding = "RATES"
+binding = "STORE"
 id = "97b971c8850a42ba81a68892830f3a3d"

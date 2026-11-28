@@ -146,6 +146,53 @@ article[data-blocks][data-blocked] {
         0 0 0 6px color-mix(in srgb, var(--warn) 45%, transparent);
 }
 
+/* The queue bot's plan spans the board above the lanes. */
+section.bot {
+    grid-column: 1 / -1;
+    grid-row: 1;
+    margin: 0 0 .6rem;
+    padding: .4rem .7rem;
+    background: var(--panel);
+    border: 1px dashed var(--line);
+    border-radius: 8px;
+    font-size: .85rem;
+}
+
+section.bot[data-act] {
+    border-style: solid;
+}
+
+section.bot h3 {
+    margin: 0 0 .2rem;
+    font-size: .75rem;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    color: var(--muted);
+}
+
+section.bot ul {
+    margin: 0;
+    padding-left: 1.2rem;
+}
+
+section.bot [data-bot="dequeue"],
+section.bot .faults {
+    color: var(--bad);
+}
+
+section.bot [data-bot="jump"] {
+    color: var(--c-priority);
+}
+
+section.bot [data-bot="enqueue"] {
+    color: var(--c-queue);
+}
+
+article[data-bot] {
+    outline: 2px dashed var(--pending);
+    outline-offset: 3px;
+}
+
 article header a {
     text-decoration: none;
     font-weight: 600;

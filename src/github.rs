@@ -20,7 +20,7 @@ pub(crate) const QUERY: &str = "query($owner:String!,$name:String!,$after:String
 repository(owner:$owner,name:$name){\
 pullRequests(states:OPEN,first:50,after:$after){\
 pageInfo{hasNextPage endCursor}\
-nodes{number title headRefName baseRefName isDraft mergeable autoMergeRequest{enabledAt} mergeQueueEntry{position} author{login __typename}\
+nodes{id number title headRefName headRefOid baseRefName isDraft isMergeQueueEnabled mergeable autoMergeRequest{enabledAt} mergeQueueEntry{position} author{login __typename}\
 labels(first:100){nodes{name}}\
 commits(last:1){nodes{commit{statusCheckRollup{state}}}}\
 timelineItems(itemTypes:[LABELED_EVENT],last:100){nodes{\
@@ -89,13 +89,19 @@ struct Comment {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct Node {
+    #[serde(default)]
+    id: String,
     number: u64,
     title: String,
     #[serde(default)]
     head_ref_name: String,
     #[serde(default)]
+    head_ref_oid: String,
+    #[serde(default)]
     base_ref_name: String,
     is_draft: bool,
+    #[serde(default)]
+    is_merge_queue_enabled: bool,
     mergeable: String,
     auto_merge_request: Option<Value>,
     merge_queue_entry: Option<Entry>,
@@ -147,9 +153,12 @@ fn pull(node: Node, slug: &str) -> Option<Pull> {
         }
     }
     let mut pull = Pull {
+        id: node.id,
         number: node.number,
+        head: node.head_ref_oid,
         title: node.title,
         base: node.base_ref_name,
+        queueable: node.is_merge_queue_enabled,
         author: node.author.map(|a| a.login).unwrap_or_default(),
         draft: node.is_draft,
         waits: has(WAITS),
@@ -410,20 +419,65 @@ impl<H: Host> Client<'_, H> {
         Ok(())
     }
 
-    /// Squash merges the pull request once its checks pass.
-    pub async fn automerge(&self, install: &Install, number: u64) -> Result<(), Fault> {
-        let (found, _) = self.open(install, number).await?;
-        let query = "mutation($id:ID!){enablePullRequestAutoMerge(\
-input:{pullRequestId:$id,mergeMethod:SQUASH}){clientMutationId}}";
-        let variables = json!({ "id": found["node_id"] });
+    /// A GraphQL mutation. An error in the reply is a failure.
+    async fn mutate(&self, install: &Install, query: &str, variables: Value) -> Result<(), Fault> {
         let body = json!({ "query": query, "variables": variables });
         let reply = self
             .api("POST", "/graphql", &install.token, Some(body))
             .await?;
         match reply["errors"][0]["message"].as_str() {
-            Some(why) => Err(Fault::new(502, format!("GitHub refused auto-merge: {why}"))),
+            Some(why) => Err(Fault::new(502, format!("GitHub refused: {why}"))),
             None => Ok(()),
         }
+    }
+
+    /// Squash merges the pull request once its checks pass.
+    pub async fn automerge(&self, install: &Install, number: u64) -> Result<(), Fault> {
+        let (found, _) = self.open(install, number).await?;
+        let query = "mutation($id:ID!){enablePullRequestAutoMerge(\
+input:{pullRequestId:$id,mergeMethod:SQUASH}){clientMutationId}}";
+        self.mutate(install, query, json!({ "id": found["node_id"] }))
+            .await
+    }
+
+    /// Adds the pull request to the merge queue at the head it had when it
+    /// was read. `jump` puts it at the front.
+    pub(crate) async fn enqueue(
+        &self,
+        install: &Install,
+        pull: &Pull,
+        jump: bool,
+    ) -> Result<(), Fault> {
+        let query = "mutation($id:ID!,$head:GitObjectID!,$jump:Boolean!){enqueuePullRequest(\
+input:{pullRequestId:$id,expectedHeadOid:$head,jump:$jump}){clientMutationId}}";
+        let variables = json!({ "id": pull.id, "head": pull.head, "jump": jump });
+        self.mutate(install, query, variables).await
+    }
+
+    /// Takes the pull request out of the merge queue and turns off the
+    /// auto-merge that would queue it again.
+    pub(crate) async fn dequeue(&self, install: &Install, pull: &Pull) -> Result<(), Fault> {
+        if pull.merging {
+            let query = "mutation($id:ID!){disablePullRequestAutoMerge(\
+input:{pullRequestId:$id}){clientMutationId}}";
+            self.mutate(install, query, json!({ "id": pull.id }))
+                .await?;
+        }
+        let query = "mutation($id:ID!){dequeuePullRequest(input:{id:$id}){clientMutationId}}";
+        self.mutate(install, query, json!({ "id": pull.id })).await
+    }
+
+    /// Posts a comment on the pull request.
+    pub(crate) async fn comment(
+        &self,
+        install: &Install,
+        number: u64,
+        body: &str,
+    ) -> Result<(), Fault> {
+        let path = format!("/repos/{}/issues/{number}/comments", self.config.repo);
+        let body = json!({ "body": body });
+        self.api("POST", &path, &install.token, Some(body)).await?;
+        Ok(())
     }
 
     /// Removes `needs-human-review`, which CI reads as the review done.
