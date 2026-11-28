@@ -137,7 +137,7 @@ pub async fn read<H: Host>(client: &Client<'_, H>, install: &Install) -> Result<
     }
     let rates = build(client, install, now).await?;
     let text = serde_json::to_string(&rates).expect("plain data serializes");
-    host.store(KEY, text, KEEP).await;
+    host.store(KEY, text, Some(KEEP)).await;
     Ok(rates)
 }
 

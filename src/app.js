@@ -120,6 +120,11 @@ function confirmLanding(card, body) {
 
 async function send(event) {
     const form = event.target;
+    const hold = event.submitter?.value === "hold";
+    if (hold && !confirm("Remove every PR from the merge queue and turn off auto-merge?")) {
+        event.preventDefault();
+        return;
+    }
     const card = form.closest("article");
     if (!card || card.classList.contains("locked")) {
         return;
